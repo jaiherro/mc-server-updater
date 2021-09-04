@@ -6,16 +6,23 @@ use sha2::{Digest, Sha256};
 use std::{
     cmp::{self},
     env,
-    error::Error,
     path::Path,
 };
 use tokio::{
     fs::{self, File},
-    io::{self, AsyncWriteExt},
+    io::AsyncWriteExt,
 };
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
 async fn main() {
+    // Setup debugger
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
     // Get preferred version from arguments if it exists.
     let args: Vec<String> = env::args().collect();
 
@@ -25,21 +32,21 @@ async fn main() {
 
     // Check for passed version to override automatic latest
     if args.len() > 1 {
-        println!("Argument passed, assuming version manually specified.");
+        info!("Argument passed, assuming version manually specified");
         version = env::args().nth(1).unwrap();
     } else {
-        println!("Getting latest version.");
-        version = get_version(&client).await.expect("Failed to get version!");
+        info!("Getting latest version");
+        version = get_version(&client).await.expect("Failed to get version");
     }
 
     // Get latest build number for version
-    println!("Getting latest build number.");
+    info!("Getting latest build number");
     let build = get_build(&client, &version)
         .await
         .expect("Failed to get build!");
 
     // Get file name for version and build number
-    println!("Getting latest file name and SHA256 for verification.");
+    info!("Getting latest file name and checksum");
     let file = get_file(&client, &version, &build)
         .await
         .expect("Failed to get file!");
@@ -60,17 +67,17 @@ async fn main() {
         version_history = serde_json::from_str(version_history_contents.as_str()).unwrap();
 
         if latest_version != version_history.currentVersion {
-            println!("Mismatch detected, updating...");
+            info!("Updating server binary");
             download_file(&client, &url, &file).await.unwrap();
         } else {
-            println!("Server is already up-to-date.")
+            info!("Server is already up-to-date")
         }
     } else {
-        println!("Unable to verify server version, redownloading...");
+        info!("Unable to discern server version, getting fresh binary");
         download_file(&client, &url, &file).await.unwrap();
     }
 
-    println!("All tasks completed, exiting.")
+    info!("All tasks completed")
 }
 
 async fn get_version(client: &Client) -> Result<String, Box<dyn std::error::Error>> {
@@ -171,18 +178,18 @@ async fn download_file(
     pb.finish_with_message(&format!("Downloaded {}", file_information.0));
 
     // Verifying binary integrity
-    println!("Verifying binary integrity...");
+    info!("Verifying checksums");
     let contents = fs::read("./paper.jar").await?;
     let mut hasher = Sha256::new();
     hasher.update(contents);
-    let hash_result = format!("{:X}", hasher.finalize()).to_lowercase();
+    let hash_result = format!("{:X}", hasher.finalize());
 
     if hash_result == file_information.1 {
-        println!("SHA256 checksums are identical, binary is perfect.")
+        info!("Checksums verified successfully")
     } else {
+        fs::remove_file("./paper.jar").await?;
         return Err(
-            "SHA256 checksums do not match, deleting downloaded binary and invoking a panic."
-                .into(),
+            "Checksums do not match, deleting downloaded binary and invoking a panic".into(),
         );
     }
 
