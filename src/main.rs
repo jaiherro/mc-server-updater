@@ -124,7 +124,7 @@ async fn get_file(
 
     Ok((
         result.downloads.application.name,
-        result.downloads.application.sha256,
+        result.downloads.application.sha256.to_uppercase(),
     ))
 }
 
