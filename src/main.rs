@@ -6,13 +6,14 @@ use sha2::{Digest, Sha256};
 use std::{
     cmp::{self},
     env,
+    error::Error,
     path::Path,
 };
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
 };
-use tracing::{info, Level};
+use tracing::{info, subscriber, Level};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
@@ -21,7 +22,7 @@ async fn main() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     // Get preferred version from arguments if it exists.
     let args: Vec<String> = env::args().collect();
@@ -111,7 +112,7 @@ async fn get_file(
     client: &Client,
     version: &String,
     build: &i64,
-) -> Result<(String, String), Box<dyn std::error::Error>> {
+) -> Result<(String, String), Box<dyn Error>> {
     let result = client
         .get(format!(
             "https://papermc.io/api/v2/projects/paper/versions/{}/builds/{}",
@@ -132,7 +133,7 @@ async fn download_file(
     client: &Client,
     url: &String,
     file_information: &(String, String),
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     // Reqwest setup
     let res = client
         .get(url)
