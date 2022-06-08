@@ -13,7 +13,7 @@ use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
 };
-use tracing::{info, subscriber, Level};
+use tracing::{info, subscriber, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
@@ -29,37 +29,62 @@ async fn main() {
 
     // Variables
     let client = Client::new();
-    let version: String;
+    let mut has_passed_version = false;
+    let mut active_version: String;
+    let mut versions: Vec<String> = Vec::new();
+    let mut build_number: u16 = 0;
 
     // Check for passed version to override automatic latest
     if args.len() > 1 {
-        info!("Argument passed, assuming version manually specified");
-        version = env::args().nth(1).unwrap();
+        info!("Version manually specified");
+        has_passed_version = true;
+        active_version = env::args().nth(1).unwrap();
     } else {
         info!("Getting latest version");
-        version = get_version(&client).await.expect("Failed to get version");
+        versions = get_version(&client).await.expect("Failed to get version");
+        active_version = versions.pop().expect("Failed to get latest version");
     }
 
-    // Get latest build number for version
-    info!("Getting latest build number");
-    let build = get_build(&client, &version)
-        .await
-        .expect("Failed to get build!");
+    if has_passed_version {
+        // Get build for passed version
+        build_number = get_build(&client, &active_version)
+            .await
+            .expect("Failed to get build for passed version");
+    } else {
+        // Get latest build number for version
+        info!("Getting latest build number");
+        for version in versions.iter().rev() {
+            build_number = match get_build(&client, &version).await {
+                Ok(gotten_build) => {
+                    active_version = version.clone();
+                    gotten_build
+                }
+                Err(_) => {
+                    warn!(
+                        "No builds exist for {}, checking next latest",
+                        active_version
+                    );
+                    continue;
+                }
+            };
+            break;
+        }
+    }
 
     // Get file name for version and build number
     info!("Getting latest file name and checksum");
-    let file = get_file(&client, &version, &build)
+    let file = get_file(&client, &active_version, &build_number)
         .await
-        .expect("Failed to get file!");
+        .expect("Failed to get file.");
 
     // Construct the URL
     let url = format!(
-        "https://papermc.io/api/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
-        version, build, file.0
+        "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
+        active_version, build_number, file.0
     );
 
     // Construct the version comparison string
-    let latest_version = format!("git-Paper-{} (MC: {})", build, version);
+    let latest_version = format!("git-Paper-{} (MC: {})", build_number, active_version);
     let version_history: VersionHistory;
 
     // Check if a version_history.json exists, if so, read it and compare with latest version information
@@ -81,22 +106,24 @@ async fn main() {
     info!("All tasks completed")
 }
 
-async fn get_version(client: &Client) -> Result<String, Box<dyn std::error::Error>> {
-    client
-        .get("https://papermc.io/api/v2/projects/paper")
+async fn get_version(
+    client: &Client,
+) -> Result<Vec<std::string::String>, Box<dyn std::error::Error>> {
+    let version = client
+        .get("https://api.papermc.io/v2/projects/paper")
         .send()
         .await?
         .json::<Version>()
         .await?
-        .versions
-        .pop()
-        .ok_or_else(|| "needed at least one version".into())
+        .versions;
+
+    Ok(version)
 }
 
-async fn get_build(client: &Client, version: &String) -> Result<i64, Box<dyn std::error::Error>> {
+async fn get_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
     client
         .get(format!(
-            "https://papermc.io/api/v2/projects/paper/versions/{}",
+            "https://api.papermc.io/v2/projects/paper/versions/{}",
             version
         ))
         .send()
@@ -105,17 +132,17 @@ async fn get_build(client: &Client, version: &String) -> Result<i64, Box<dyn std
         .await?
         .builds
         .pop()
-        .ok_or_else(|| "needed at least one build".into())
+        .ok_or_else(|| "Needed at least one build but found none".into())
 }
 
 async fn get_file(
     client: &Client,
     version: &String,
-    build: &i64,
+    build: &u16,
 ) -> Result<(String, String), Box<dyn Error>> {
     let result = client
         .get(format!(
-            "https://papermc.io/api/v2/projects/paper/versions/{}/builds/{}",
+            "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}",
             version, build
         ))
         .send()
@@ -149,8 +176,8 @@ async fn download_file(
     pb.set_style(ProgressStyle::default_bar()
         .template("{msg}\n{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
         .progress_chars("#>-"));
-    pb.set_message(&format!(
-        "Downloading {} from https://papermc.io/",
+    pb.set_message(format!(
+        "Downloading {} from https://api.papermc.io/",
         file_information.0
     ));
 
@@ -176,22 +203,25 @@ async fn download_file(
         pb.set_position(new);
     }
 
-    pb.finish_with_message(&format!("Downloaded {}", file_information.0));
+    pb.finish_with_message(format!("Downloaded {}", file_information.0));
 
     // Verifying binary integrity
-    info!("Verifying checksums");
+    info!("Verifying hashes");
     let contents = fs::read("./paper.jar").await?;
     let mut hasher = Sha256::new();
     hasher.update(contents);
     let hash_result = format!("{:X}", hasher.finalize());
 
     if hash_result == file_information.1 {
-        info!("Checksums verified successfully")
+        info!("Hashes verified successfully, binary is authentic");
     } else {
-        fs::remove_file("./paper.jar").await?;
-        return Err(
-            "Checksums do not match, deleting downloaded binary and invoking a panic".into(),
+        println!(
+            "The binary failed verification, assuming malicious and erasing to protect the host"
         );
+        fs::remove_file("./paper.jar")
+            .await
+            .expect("Failed to remove file, this is very bad");
+        return Err("Binary failed hash verification".into());
     }
 
     return Ok(());
@@ -204,7 +234,7 @@ struct Version {
 
 #[derive(Deserialize)]
 struct Build {
-    builds: Vec<i64>,
+    builds: Vec<u16>,
 }
 
 #[derive(Deserialize)]
