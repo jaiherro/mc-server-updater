@@ -58,7 +58,7 @@ async fn main() {
         version, build, file.0
     );
 
-    // Construct the version comparison
+    // Construct the version comparison string
     let latest_version = format!("git-Paper-{} (MC: {})", build, version);
     let version_history: VersionHistory;
 
@@ -223,6 +223,7 @@ struct Application {
     sha256: String,
 }
 
+#[allow(non_snake_case)]
 #[derive(Deserialize)]
 struct VersionHistory {
     currentVersion: String,
