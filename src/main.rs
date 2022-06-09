@@ -24,89 +24,132 @@ async fn main() {
         .finish();
     subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    // Get preferred version from arguments if it exists.
+    // Get arguments
     let args: Vec<String> = env::args().collect();
 
     // Variables
     let client = Client::new();
-    let mut has_passed_version = false;
-    let mut active_version: String;
-    let mut versions: Vec<String> = Vec::new();
-    let mut build_number: u16 = 0;
+    let mut version_history: VersionHistory;
+    let mut constructed_version: std::string::String = std::string::String::new();
+    let mut game_version: String;
+    let build_number: u16;
+
+    // Check version_history.json (if it exists)
+    if Path::new("./version_history.json").exists() {
+        let version_history_contents = fs::read_to_string("./version_history.json").await.unwrap();
+        version_history =
+            serde_json::from_str(version_history_contents.as_str()).unwrap();
+    } else {
+        info!("Unable to discern current server version");
+        let mut all_game_versions: Vec<std::string::String> = get_all_game_versions(&client)
+            .await
+            .expect("Failed to get versions");
+        game_version = latest_valid_version(&client, &mut all_game_versions)
+            .await
+            .expect("Couldn't get latest version");
+    }
 
     // Check for passed version to override automatic latest
     if args.len() > 1 {
-        info!("Version manually specified");
-        has_passed_version = true;
-        active_version = env::args().nth(1).unwrap();
+        match args[1].as_str() {
+            "-v" | "--v" | "-version" | "--version" => {
+                info!("Specific version requested, skipping automatic latest");
+                game_version = args[2].clone();
+            }
+            "-l" | "--l" | "-latest" | "--latest" => {
+                info!("Absolute latest version requested, ignoring current version");
+                let mut all_game_versions: Vec<std::string::String> =
+                    get_all_game_versions(&client)
+                        .await
+                        .expect("Failed to get versions");
+                game_version = latest_valid_version(&client, &mut all_game_versions)
+                    .await
+                    .expect("Couldn't get latest version");
+            }
+            _ => {
+                panic!("Unknown argument: {}", args[1]);
+            }
+        }
     } else {
-        info!("Getting latest version");
-        versions = get_version(&client).await.expect("Failed to get version");
-        active_version = versions.pop().expect("Failed to get latest version");
+        constructed_version = version_history.current_version;
+        game_version = constructed_version
+            .split("(MC: ")
+            .collect::<Vec<&str>>()[2]
+            .strip_suffix(")\"")
+            .expect("Failed to strip suffix")
+            .to_string();
+
+        // if Path::new("./version_history.json").exists() {
+        //     let version_history_contents =
+        //         fs::read_to_string("./version_history.json").await.unwrap();
+        //     let version_history_json: VersionHistory =
+        //         serde_json::from_str(version_history_contents.as_str()).unwrap();
+        //     current_constructed_version_build = version_history_json.current_version;
+        //     game_version = current_constructed_version_build
+        //         .split("(MC: ")
+        //         .collect::<Vec<&str>>()[2]
+        //         .strip_suffix(")\"")
+        //         .expect("Failed to strip suffix")
+        //         .to_string();
+        // } else {
+        //     info!("Unable to discern current server version");
+        //     let mut all_game_versions: Vec<std::string::String> = get_all_game_versions(&client)
+        //         .await
+        //         .expect("Failed to get versions");
+        //     game_version = latest_valid_version(&client, &mut all_game_versions)
+        //         .await
+        //         .expect("Couldn't get latest version");
+        // }
     }
 
-    if has_passed_version {
-        // Get build for passed version
-        build_number = get_build(&client, &active_version)
-            .await
-            .expect("Failed to get build for passed version");
-    } else {
-        // Get latest build number for version
-        info!("Getting latest build number");
-        for version in versions.iter().rev() {
-            build_number = match get_build(&client, &version).await {
-                Ok(gotten_build) => {
-                    active_version = version.clone();
-                    gotten_build
-                }
-                Err(_) => {
-                    warn!(
-                        "No builds exist for {}, checking next latest",
-                        active_version
-                    );
-                    continue;
-                }
-            };
-            break;
-        }
-    }
+    build_number = get_build(&client, &game_version)
+        .await
+        .expect("Failed to get build");
 
     // Get file name for version and build number
     info!("Getting latest file name and checksum");
-    let file = get_file(&client, &active_version, &build_number)
+    let file = get_file(&client, &game_version, &build_number)
         .await
         .expect("Failed to get file.");
 
     // Construct the URL
     let url = format!(
         "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
-        active_version, build_number, file.0
+        game_version, build_number, file.0
     );
 
     // Construct the version comparison string
-    let latest_version = format!("git-Paper-{} (MC: {})", build_number, active_version);
-    let version_history: VersionHistory;
+    let constructed_version_build = format!("git-Paper-{} (MC: {})", build_number, game_version);
 
-    // Check if a version_history.json exists, if so, read it and compare with latest version information
-    if Path::new("./version_history.json").exists() {
-        let version_history_contents = fs::read_to_string("./version_history.json").await.unwrap();
-        version_history = serde_json::from_str(version_history_contents.as_str()).unwrap();
-
-        if latest_version != version_history.currentVersion {
-            info!("Updating server binary");
-            download_file(&client, &url, &file).await.unwrap();
-        } else {
-            info!("Server is already up-to-date")
-        }
-    } else {
-        info!("Unable to discern server version, getting fresh binary");
+    if constructed_version != constructed_version_build {
+        info!("Updating server binary");
         download_file(&client, &url, &file).await.unwrap();
+    } else {
+        info!("Server is already up-to-date")
     }
 
     info!("All tasks completed")
 }
 
-async fn get_version(
+async fn latest_valid_version(
+    client: &Client,
+    all_game_versions: &Vec<std::string::String>,
+) -> Result<std::string::String, Box<dyn std::error::Error>> {
+    for version in all_game_versions.iter().rev() {
+        match get_build(client, &version).await {
+            Ok(_) => {
+                return Ok(version.clone().into());
+            }
+            Err(_) => {
+                warn!("No builds exist for {}, checking next latest", version);
+                continue;
+            }
+        };
+    }
+    return Err("No valid versions found".into());
+}
+
+async fn get_all_game_versions(
     client: &Client,
 ) -> Result<Vec<std::string::String>, Box<dyn std::error::Error>> {
     let version = client
@@ -253,8 +296,9 @@ struct Application {
     sha256: String,
 }
 
-#[allow(non_snake_case)]
 #[derive(Deserialize)]
-struct VersionHistory {
-    currentVersion: String,
+#[serde(rename_all = "camelCase")]
+pub struct VersionHistory {
+    pub old_version: String,
+    pub current_version: String,
 }
