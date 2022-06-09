@@ -29,25 +29,9 @@ async fn main() {
 
     // Variables
     let client = Client::new();
-    let mut version_history: VersionHistory;
-    let mut constructed_version: std::string::String = std::string::String::new();
-    let mut game_version: String;
+    let current_constructed_version: String;
+    let game_version: String;
     let build_number: u16;
-
-    // Check version_history.json (if it exists)
-    if Path::new("./version_history.json").exists() {
-        let version_history_contents = fs::read_to_string("./version_history.json").await.unwrap();
-        version_history =
-            serde_json::from_str(version_history_contents.as_str()).unwrap();
-    } else {
-        info!("Unable to discern current server version");
-        let mut all_game_versions: Vec<std::string::String> = get_all_game_versions(&client)
-            .await
-            .expect("Failed to get versions");
-        game_version = latest_valid_version(&client, &mut all_game_versions)
-            .await
-            .expect("Couldn't get latest version");
-    }
 
     // Check for passed version to override automatic latest
     if args.len() > 1 {
@@ -71,35 +55,27 @@ async fn main() {
             }
         }
     } else {
-        constructed_version = version_history.current_version;
-        game_version = constructed_version
-            .split("(MC: ")
-            .collect::<Vec<&str>>()[2]
-            .strip_suffix(")\"")
-            .expect("Failed to strip suffix")
-            .to_string();
-
-        // if Path::new("./version_history.json").exists() {
-        //     let version_history_contents =
-        //         fs::read_to_string("./version_history.json").await.unwrap();
-        //     let version_history_json: VersionHistory =
-        //         serde_json::from_str(version_history_contents.as_str()).unwrap();
-        //     current_constructed_version_build = version_history_json.current_version;
-        //     game_version = current_constructed_version_build
-        //         .split("(MC: ")
-        //         .collect::<Vec<&str>>()[2]
-        //         .strip_suffix(")\"")
-        //         .expect("Failed to strip suffix")
-        //         .to_string();
-        // } else {
-        //     info!("Unable to discern current server version");
-        //     let mut all_game_versions: Vec<std::string::String> = get_all_game_versions(&client)
-        //         .await
-        //         .expect("Failed to get versions");
-        //     game_version = latest_valid_version(&client, &mut all_game_versions)
-        //         .await
-        //         .expect("Couldn't get latest version");
-        // }
+        if Path::new("./version_history.json").exists() {
+            let version_history_contents =
+                fs::read_to_string("./version_history.json").await.unwrap();
+            let version_history_json: VersionHistory =
+                serde_json::from_str(version_history_contents.as_str()).unwrap();
+            current_constructed_version = version_history_json.current_version;
+            game_version = current_constructed_version
+                .split("(MC: ")
+                .collect::<Vec<&str>>()[2]
+                .strip_suffix(")\"")
+                .expect("Failed to strip suffix")
+                .to_string();
+        } else {
+            info!("Unable to discern current server version");
+            let mut all_game_versions: Vec<std::string::String> = get_all_game_versions(&client)
+                .await
+                .expect("Failed to get versions");
+            game_version = latest_valid_version(&client, &mut all_game_versions)
+                .await
+                .expect("Couldn't get latest version");
+        }
     }
 
     build_number = get_build(&client, &game_version)
@@ -119,9 +95,9 @@ async fn main() {
     );
 
     // Construct the version comparison string
-    let constructed_version_build = format!("git-Paper-{} (MC: {})", build_number, game_version);
+    let requested_constructed_version = format!("git-Paper-{} (MC: {})", build_number, game_version);
 
-    if constructed_version != constructed_version_build {
+    if current_constructed_version != requested_constructed_version {
         info!("Updating server binary");
         download_file(&client, &url, &file).await.unwrap();
     } else {
