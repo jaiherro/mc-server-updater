@@ -286,7 +286,7 @@ struct Application {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct VersionHistory {
     pub old_version: String,
     pub current_version: String,
