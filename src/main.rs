@@ -13,7 +13,7 @@ use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
 };
-use tracing::{info, subscriber, warn, Level, error};
+use tracing::{error, info, subscriber, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
@@ -40,8 +40,10 @@ async fn main() {
         let version_history_json: VersionHistory =
             serde_json::from_str(version_history_contents.as_str()).unwrap();
         version_history_current = version_history_json.current_version;
+        info!("Current version found: {}", version_history_current);
     } else {
         version_history_current = "0.0.0".to_string();
+        info!("Current version not found, getting latest");
     }
 
     // Check for passed version to override automatic latest, latest flag, or none of them
@@ -49,16 +51,15 @@ async fn main() {
         match args[1].as_str() {
             // Check for passed version
             "-v" | "--v" | "-version" | "--version" => {
-                info!("Version requested found: {}", &args[2]);
+                info!("Version {} requested", &args[2]);
                 wanted_version = args[2].clone();
             }
             // Check for latest flag
             "-l" | "--l" | "-latest" | "--latest" => {
-                info!("Absolute latest version requested, ignoring current version");
-                let mut all_game_versions: Vec<std::string::String> =
-                    get_all_game_versions(&client)
-                        .await
-                        .expect("Failed to get versions");
+                info!("Absolute latest version requested");
+                let mut all_game_versions: Vec<String> = get_all_game_versions(&client)
+                    .await
+                    .expect("Failed to get versions");
                 wanted_version = latest_valid_version(&client, &mut all_game_versions)
                     .await
                     .expect("Couldn't get latest version");
@@ -71,8 +72,7 @@ async fn main() {
     } else {
         // If version_history.json couldn't be found or read, use the latest version
         if version_history_current == "0.0.0" {
-            info!("Current version not found, getting latest");
-            let mut all_game_versions: Vec<std::string::String> = get_all_game_versions(&client)
+            let mut all_game_versions: Vec<String> = get_all_game_versions(&client)
                 .await
                 .expect("Failed to get versions");
             wanted_version = latest_valid_version(&client, &mut all_game_versions)
@@ -80,7 +80,6 @@ async fn main() {
                 .expect("Couldn't get latest version");
         // If version_history.json was found, extract the current version
         } else {
-            info!("Current version found: {}", version_history_current);
             wanted_version = version_history_current
                 .split("(MC: ")
                 .collect::<Vec<&str>>()[1]
@@ -118,7 +117,10 @@ async fn main() {
             "Now downloading version {} build {}",
             wanted_version, wanted_build
         );
-        download_file(&client, &url, &file).await.unwrap();
+        download_file(&client, &url, &file.0).await.unwrap();
+        verify_binary(&file.1)
+            .await
+            .expect("Failed to verify binary");
     } else {
         info!("Server is already up-to-date")
     }
@@ -128,8 +130,8 @@ async fn main() {
 
 async fn latest_valid_version(
     client: &Client,
-    all_game_versions: &Vec<std::string::String>,
-) -> Result<std::string::String, Box<dyn std::error::Error>> {
+    all_game_versions: &Vec<String>,
+) -> Result<String, Box<dyn std::error::Error>> {
     for version in all_game_versions.iter().rev() {
         match get_build(client, &version).await {
             Ok(_) => {
@@ -147,9 +149,7 @@ async fn latest_valid_version(
     return Err("No valid versions found".into());
 }
 
-async fn get_all_game_versions(
-    client: &Client,
-) -> Result<Vec<std::string::String>, Box<dyn std::error::Error>> {
+async fn get_all_game_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let version = client
         .get("https://api.papermc.io/v2/projects/paper")
         .send()
@@ -200,7 +200,7 @@ async fn get_file(
 async fn download_file(
     client: &Client,
     url: &String,
-    file_information: &(String, String),
+    file_name: &String,
 ) -> Result<(), Box<dyn Error>> {
     // Reqwest setup
     let res = client
@@ -219,36 +219,36 @@ async fn download_file(
         .progress_chars("#>-"));
 
     // download chunks
-    let mut file = File::create("./paper.jar").await.or(Err(format!(
-        "Failed to create file '{}'",
-        file_information.0
-    )))?;
+    let mut file = File::create("./paper.jar")
+        .await
+        .or(Err(format!("Failed to create file '{}'", file_name)))?;
     let mut downloaded: u64 = 0;
     let mut stream = res.bytes_stream();
 
     while let Some(item) = stream.next().await {
-        let chunk = item.or(Err(format!(
-            "Error while downloading {}",
-            &file_information.0
-        )))?;
-        file.write(&chunk).await.or(Err(format!(
-            "Error while writing to {}",
-            &file_information.0
-        )))?;
+        let chunk = item.or(Err(format!("Error while downloading {}", file_name)))?;
+        file.write(&chunk)
+            .await
+            .or(Err(format!("Error while writing to {}", file_name)))?;
         let new = cmp::min(downloaded + (chunk.len() as u64), total_size);
         downloaded = new;
         pb.set_position(new);
     }
 
+    return Ok(());
+}
+
+async fn verify_binary(hash: &String) -> Result<(), Box<dyn Error>> {
     // Verifying binary integrity
     info!("Verifying file integrity");
-    let contents = fs::read("./paper.jar").await.expect("Failed to read downloaded file");
+    let contents = fs::read("./paper.jar")
+        .await
+        .expect("Failed to read downloaded file");
     let mut hasher = Sha256::new();
     hasher.update(contents);
     let hash_result = format!("{:X}", hasher.finalize());
-    
-    if &hash_result == &file_information.1 {
-        info!("Hashes match, file is valid");
+    if &hash_result == hash {
+        info!("Hashes match, file verified");
         return Ok(());
     } else {
         error!("Hashes do not match, downloaded binary may be corrupted, erasing file");
