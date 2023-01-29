@@ -1,14 +1,7 @@
-use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    cmp::{self},
-    env,
-    error::Error,
-    path::Path,
-};
+use std::{env, error::Error, path::Path};
 use tokio::{
     fs::{self, File},
     io::AsyncWriteExt,
@@ -28,6 +21,7 @@ async fn main() {
     let args: Vec<String> = env::args().collect();
 
     // Variables
+    let file_name = "purpur.jar";
     let client = Client::new();
     let version_history_current: String;
     let wanted_version: String;
@@ -60,7 +54,7 @@ async fn main() {
                 let mut all_game_versions: Vec<String> = get_all_game_versions(&client)
                     .await
                     .expect("Failed to get versions");
-                wanted_version = latest_valid_version(&client, &mut all_game_versions)
+                wanted_version = get_latest_valid_version(&client, &mut all_game_versions)
                     .await
                     .expect("Couldn't get latest version");
             }
@@ -75,7 +69,7 @@ async fn main() {
             let mut all_game_versions: Vec<String> = get_all_game_versions(&client)
                 .await
                 .expect("Failed to get versions");
-            wanted_version = latest_valid_version(&client, &mut all_game_versions)
+            wanted_version = get_latest_valid_version(&client, &mut all_game_versions)
                 .await
                 .expect("Couldn't get latest version");
         // If version_history.json was found, extract the current version
@@ -91,24 +85,24 @@ async fn main() {
 
     // Get the latest build number for a specific version
     info!("Getting latest build for version: {}", wanted_version);
-    wanted_build = get_build(&client, &wanted_version)
+    wanted_build = get_latest_build(&client, &wanted_version)
         .await
         .expect("Failed to get build");
 
     // Construct the version comparison string
     let requested_constructed_version =
-        format!("git-Paper-{} (MC: {})", wanted_build, wanted_version);
+        format!("git-Purpur-{} (MC: {})", wanted_build, wanted_version);
 
-    // Get file name for version and build number
+    // Get hash for version
     info!("Desired version is: {}", requested_constructed_version);
-    let file = get_file(&client, &wanted_version, &wanted_build)
+    let hash = get_hash(&client, &wanted_version, &wanted_build)
         .await
         .expect("Failed to get file.");
 
     // Construct the URL
     let url = format!(
-        "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
-        wanted_version, wanted_build, file.0
+        "https://api.purpurmc.org/v2/purpur/{}/{}/download",
+        wanted_version, wanted_build
     );
 
     // Check if the version is already downloaded
@@ -117,8 +111,8 @@ async fn main() {
             "Now downloading version {} build {}",
             wanted_version, wanted_build
         );
-        download_file(&client, &url, &file.0).await.unwrap();
-        verify_binary(&file.1)
+        download_file(&client, &url, file_name).await.unwrap();
+        verify_binary(file_name, &hash)
             .await
             .expect("Failed to verify binary");
     } else {
@@ -128,12 +122,12 @@ async fn main() {
     info!("All tasks completed")
 }
 
-async fn latest_valid_version(
+async fn get_latest_valid_version(
     client: &Client,
     all_game_versions: &Vec<String>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     for version in all_game_versions.iter().rev() {
-        match get_build(client, &version).await {
+        match get_latest_build(client, &version).await {
             Ok(_) => {
                 return Ok(version.clone().into());
             }
@@ -151,56 +145,62 @@ async fn latest_valid_version(
 
 async fn get_all_game_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let version = client
-        .get("https://api.papermc.io/v2/projects/paper")
+        .get("https://api.purpurmc.org/v2/purpur")
         .send()
         .await?
-        .json::<Version>()
+        .json::<Purpur>()
         .await?
         .versions;
 
     Ok(version)
 }
 
-async fn get_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
-    client
-        .get(format!(
-            "https://api.papermc.io/v2/projects/paper/versions/{}",
-            version
-        ))
+async fn get_latest_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
+    let debug = client
+        .get(format!("https://api.purpurmc.org/v2/purpur/{}", version))
         .send()
         .await?
-        .json::<Build>()
+        .json::<Version>()
+        .await?;
+
+    println!("{}", serde_json::to_string_pretty(&debug).unwrap());
+
+    let build = client
+        .get(format!("https://api.purpurmc.org/v2/purpur/{}", version))
+        .send()
+        .await?
+        .json::<Version>()
         .await?
         .builds
+        .all
         .pop()
-        .ok_or_else(|| "Needed at least one build but found none".into())
+        .ok_or_else(|| "Needed at least one build but found none")?;
+
+    Ok(build)
 }
 
-async fn get_file(
+async fn get_hash(
     client: &Client,
     version: &String,
     build: &u16,
-) -> Result<(String, String), Box<dyn Error>> {
+) -> Result<String, Box<dyn Error>> {
     let result = client
         .get(format!(
-            "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}",
+            "https://api.purpurmc.org/v2/purpur/{}/{}",
             version, build
         ))
         .send()
         .await?
-        .json::<Project>()
+        .json::<Build>()
         .await?;
 
-    Ok((
-        result.downloads.application.name,
-        result.downloads.application.sha256.to_uppercase(),
-    ))
+    Ok(result.md5.to_uppercase())
 }
 
 async fn download_file(
     client: &Client,
     url: &String,
-    file_name: &String,
+    file_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     // Reqwest setup
     let res = client
@@ -208,40 +208,24 @@ async fn download_file(
         .send()
         .await
         .or(Err(format!("Failed to GET from '{}'", &url)))?;
-    let total_size = res
-        .content_length()
-        .ok_or(format!("Failed to get content length from '{}'", &url))?;
 
-    // Indicatif setup
-    let pb = ProgressBar::new(total_size);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.white} [{wide_bar:.white}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
-        .progress_chars("#>-"));
-
-    // download chunks
-    let mut file = File::create("./paper.jar")
+    // create file
+    let mut file = File::create("./purpur.jar")
         .await
         .or(Err(format!("Failed to create file '{}'", file_name)))?;
-    let mut downloaded: u64 = 0;
-    let mut stream = res.bytes_stream();
 
-    while let Some(item) = stream.next().await {
-        let chunk = item.or(Err(format!("Error while downloading {}", file_name)))?;
-        file.write(&chunk)
-            .await
-            .or(Err(format!("Error while writing to {}", file_name)))?;
-        let new = cmp::min(downloaded + (chunk.len() as u64), total_size);
-        downloaded = new;
-        pb.set_position(new);
-    }
+    // write bytes to file
+    file.write(&res.bytes().await?)
+        .await
+        .or(Err(format!("Error while writing to {}", file_name)))?;
 
     return Ok(());
 }
 
-async fn verify_binary(hash: &String) -> Result<(), Box<dyn Error>> {
+async fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
     // Verifying binary integrity
     info!("Verifying file integrity");
-    let contents = fs::read("./paper.jar")
+    let contents = fs::read(format!("./{}", file_name))
         .await
         .expect("Failed to read downloaded file");
     let mut hasher = Sha256::new();
@@ -252,41 +236,45 @@ async fn verify_binary(hash: &String) -> Result<(), Box<dyn Error>> {
         return Ok(());
     } else {
         error!("Hashes do not match, downloaded binary may be corrupted, erasing file");
-        fs::remove_file("./paper.jar")
+        fs::remove_file("./purpur.jar")
             .await
             .expect("Failed to remove file");
         return Err("Binary failed hash verification".into());
     }
 }
 
-#[derive(Deserialize)]
-struct Version {
+// https://api.purpurmc.org/v2/purpur
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Purpur {
     versions: Vec<String>,
 }
 
-#[derive(Deserialize)]
+// https://api.purpurmc.org/v2/purpur/{version}
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Version {
+    builds: Builds,
+    project: String,
+    version: String,
+}
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Builds {
+    all: Vec<u16>,
+    latest: u16,
+}
+
+// https://api.purpurmc.org/v2/purpur/{version}/{build} or https://api.purpurmc.org/v2/purpur/{version}/latest
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Build {
-    builds: Vec<u16>,
+    build: u16,
+    md5: String,
+    project: String,
+    result: String,
+    timestamp: u64,
+    version: String,
 }
 
-#[derive(Deserialize)]
-struct Project {
-    downloads: Downloads,
-}
-
-#[derive(Deserialize)]
-struct Downloads {
-    application: Application,
-}
-
-#[derive(Deserialize)]
-struct Application {
-    name: String,
-    sha256: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VersionHistory {
-    pub current_version: String,
+// version_history.json
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct VersionHistory {
+    current_version: String,
 }

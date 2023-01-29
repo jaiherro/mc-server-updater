@@ -1,2 +1,2 @@
-# Paper Updater
-This updates a servers paper.jar file. Run it before the server starts.
+# Purpur Updater
+This updates a servers purpur.jar file. Run it before the server starts.
