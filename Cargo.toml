@@ -12,11 +12,9 @@ codegen-units = 1
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.11.14", features = ["json"] }
-tokio = { version = "1.24.2", features = ["fs", "macros", "rt-multi-thread"] }
+ureq = { version = "2.6.2", features = ["json", "brotli"] }
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"
-futures-util = "0.3.25"
-sha2 = "0.10.6"
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
+md5 = "0.7.0"

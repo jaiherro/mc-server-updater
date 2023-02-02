@@ -1,16 +1,17 @@
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{env, error::Error, path::Path};
-use tokio::{
+use serde::Deserialize;
+use std::{
+    env,
+    error::Error,
     fs::{self, File},
-    io::AsyncWriteExt,
+    io::Write,
+    path::Path,
+    time::Duration,
 };
 use tracing::{error, info, subscriber, warn, Level};
 use tracing_subscriber::FmtSubscriber;
+use ureq::{Agent, AgentBuilder};
 
-#[tokio::main]
-async fn main() {
+fn main() {
     // Setup debugger
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
@@ -22,7 +23,10 @@ async fn main() {
 
     // Variables
     let file_name = "purpur.jar";
-    let client = Client::new();
+    let agent = AgentBuilder::new()
+        .timeout_read(Duration::from_secs(5))
+        .timeout_write(Duration::from_secs(5))
+        .build();
     let version_history_current: String;
     let wanted_version: String;
     let wanted_build: u16;
@@ -30,7 +34,7 @@ async fn main() {
     // Check for existing version
     info!("Checking for current version information");
     if Path::new("./version_history.json").exists() {
-        let version_history_contents = fs::read_to_string("./version_history.json").await.unwrap();
+        let version_history_contents = fs::read_to_string("./version_history.json").unwrap();
         let version_history_json: VersionHistory =
             serde_json::from_str(version_history_contents.as_str()).unwrap();
         version_history_current = version_history_json.current_version;
@@ -51,11 +55,9 @@ async fn main() {
             // Check for latest flag
             "-l" | "--l" | "-latest" | "--latest" => {
                 info!("Absolute latest version requested");
-                let mut all_game_versions: Vec<String> = get_all_game_versions(&client)
-                    .await
-                    .expect("Failed to get versions");
-                wanted_version = get_latest_valid_version(&client, &mut all_game_versions)
-                    .await
+                let mut all_game_versions: Vec<String> =
+                    get_all_game_versions(&agent).expect("Failed to get versions");
+                wanted_version = get_latest_valid_version(&agent, &mut all_game_versions)
                     .expect("Couldn't get latest version");
             }
             // If none of the above, panic
@@ -66,11 +68,9 @@ async fn main() {
     } else {
         // If version_history.json couldn't be found or read, use the latest version
         if version_history_current == "0.0.0" {
-            let mut all_game_versions: Vec<String> = get_all_game_versions(&client)
-                .await
-                .expect("Failed to get versions");
-            wanted_version = get_latest_valid_version(&client, &mut all_game_versions)
-                .await
+            let mut all_game_versions: Vec<String> =
+                get_all_game_versions(&agent).expect("Failed to get versions");
+            wanted_version = get_latest_valid_version(&agent, &mut all_game_versions)
                 .expect("Couldn't get latest version");
         // If version_history.json was found, extract the current version
         } else {
@@ -85,9 +85,7 @@ async fn main() {
 
     // Get the latest build number for a specific version
     info!("Getting latest build for version: {}", wanted_version);
-    wanted_build = get_latest_build(&client, &wanted_version)
-        .await
-        .expect("Failed to get build");
+    wanted_build = get_latest_build(&agent, &wanted_version).expect("Failed to get build");
 
     // Construct the version comparison string
     let requested_constructed_version =
@@ -95,9 +93,7 @@ async fn main() {
 
     // Get hash for version
     info!("Desired version is: {}", requested_constructed_version);
-    let hash = get_hash(&client, &wanted_version, &wanted_build)
-        .await
-        .expect("Failed to get file.");
+    let hash = get_hash(&agent, &wanted_version, &wanted_build).expect("Failed to get file.");
 
     // Construct the URL
     let url = format!(
@@ -111,10 +107,8 @@ async fn main() {
             "Now downloading version {} build {}",
             wanted_version, wanted_build
         );
-        download_file(&client, &url, file_name).await.unwrap();
-        verify_binary(file_name, &hash)
-            .await
-            .expect("Failed to verify binary");
+        download_file(&agent, &url, file_name).unwrap();
+        verify_binary(&file_name, &hash).expect("Failed to verify binary");
     } else {
         info!("Server is already up-to-date")
     }
@@ -122,12 +116,12 @@ async fn main() {
     info!("All tasks completed")
 }
 
-async fn get_latest_valid_version(
-    client: &Client,
+fn get_latest_valid_version(
+    agent: &Agent,
     all_game_versions: &Vec<String>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     for version in all_game_versions.iter().rev() {
-        match get_latest_build(client, &version).await {
+        match get_latest_build(&agent, &version) {
             Ok(_) => {
                 return Ok(version.clone().into());
             }
@@ -143,129 +137,99 @@ async fn get_latest_valid_version(
     return Err("No valid versions found".into());
 }
 
-async fn get_all_game_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let version = client
+fn get_all_game_versions(agent: &Agent) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let version = agent
         .get("https://api.purpurmc.org/v2/purpur")
-        .send()
-        .await?
-        .json::<Purpur>()
-        .await?
+        .call()?
+        .into_json::<Purpur>()?
         .versions;
 
     Ok(version)
 }
 
-async fn get_latest_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
-    let debug = client
-        .get(format!("https://api.purpurmc.org/v2/purpur/{}", version))
-        .send()
-        .await?
-        .json::<Version>()
-        .await?;
-
-    println!("{}", serde_json::to_string_pretty(&debug).unwrap());
-
-    let build = client
-        .get(format!("https://api.purpurmc.org/v2/purpur/{}", version))
-        .send()
-        .await?
-        .json::<Version>()
-        .await?
+fn get_latest_build(agent: &Agent, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
+    let build = agent
+        .get(format!("https://api.purpurmc.org/v2/purpur/{}", version).as_str())
+        .call()?
+        .into_json::<Version>()?
         .builds
         .all
         .pop()
-        .ok_or_else(|| "Needed at least one build but found none")?;
+        .unwrap();
 
-    Ok(build)
+    Ok(build.parse::<u16>().unwrap())
 }
 
-async fn get_hash(
-    client: &Client,
-    version: &String,
-    build: &u16,
-) -> Result<String, Box<dyn Error>> {
-    let result = client
-        .get(format!(
-            "https://api.purpurmc.org/v2/purpur/{}/{}",
-            version, build
-        ))
-        .send()
-        .await?
-        .json::<Build>()
-        .await?;
+fn get_hash(agent: &Agent, version: &String, build: &u16) -> Result<String, Box<dyn Error>> {
+    let result = agent
+        .get(format!("https://api.purpurmc.org/v2/purpur/{}/{}", version, build).as_str())
+        .call()?
+        .into_json::<Build>()?;
 
     Ok(result.md5.to_uppercase())
 }
 
-async fn download_file(
-    client: &Client,
-    url: &String,
-    file_name: &str,
-) -> Result<(), Box<dyn Error>> {
+fn download_file(agent: &Agent, url: &String, file_name: &str) -> Result<(), Box<dyn Error>> {
     // Reqwest setup
-    let res = client
+    let resp = agent
         .get(url)
-        .send()
-        .await
+        .call()
         .or(Err(format!("Failed to GET from '{}'", &url)))?;
 
     // create file
-    let mut file = File::create("./purpur.jar")
-        .await
+    let mut file = File::create(format!("./{}", file_name))
         .or(Err(format!("Failed to create file '{}'", file_name)))?;
 
     // write bytes to file
-    file.write(&res.bytes().await?)
-        .await
+    let mut reader = resp.into_reader();
+    let mut bytes = vec![];
+    reader.read_to_end(&mut bytes)?;
+
+    file.write_all(&bytes)
         .or(Err(format!("Error while writing to {}", file_name)))?;
 
     return Ok(());
 }
 
-async fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
+fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
     // Verifying binary integrity
     info!("Verifying file integrity");
-    let contents = fs::read(format!("./{}", file_name))
-        .await
-        .expect("Failed to read downloaded file");
-    let mut hasher = Sha256::new();
-    hasher.update(contents);
-    let hash_result = format!("{:X}", hasher.finalize());
-    if &hash_result == hash {
+    let contents = fs::read(format!("./{}", file_name)).expect("Failed to read downloaded file");
+    let digest = md5::compute(contents);
+    let downloaded_file_hash = format!("{:X}", digest);
+    if &downloaded_file_hash == hash {
         info!("Hashes match, file verified");
         return Ok(());
     } else {
-        error!("Hashes do not match, downloaded binary may be corrupted, erasing file");
-        fs::remove_file("./purpur.jar")
-            .await
-            .expect("Failed to remove file");
+        error!("Hashes do not match, downloaded binary may be corrupted, erasing file.");
+        fs::remove_file(format!("./{}", file_name)).expect("Failed to remove file");
         return Err("Binary failed hash verification".into());
     }
 }
 
 // https://api.purpurmc.org/v2/purpur
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Purpur {
     versions: Vec<String>,
 }
 
 // https://api.purpurmc.org/v2/purpur/{version}
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Version {
     builds: Builds,
     project: String,
     version: String,
 }
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Builds {
-    all: Vec<u16>,
-    latest: u16,
+    all: Vec<String>,
+    latest: String,
 }
 
 // https://api.purpurmc.org/v2/purpur/{version}/{build} or https://api.purpurmc.org/v2/purpur/{version}/latest
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Build {
-    build: u16,
+    build: String,
     md5: String,
     project: String,
     result: String,
@@ -274,7 +238,8 @@ struct Build {
 }
 
 // version_history.json
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct VersionHistory {
     current_version: String,
 }
