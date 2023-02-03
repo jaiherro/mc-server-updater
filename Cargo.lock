@@ -190,6 +190,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "purpur_updater"
+version = "2.1.1"
+dependencies = [
+ "md5",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -412,18 +424,6 @@ name = "untrusted"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
-
-[[package]]
-name = "updater"
-version = "1.0.0"
-dependencies = [
- "md5",
- "serde",
- "serde_json",
- "tracing",
- "tracing-subscriber",
- "ureq",
-]
 
 [[package]]
 name = "ureq"
