@@ -21,10 +21,10 @@ fn main() {
         .timeout_read(Duration::from_secs(5))
         .timeout_write(Duration::from_secs(5))
         .build();
-    let current_version_exists: bool;
     let mut current_version_build: (String, u16) = ("".to_string(), 0);
     let mut wanted_version_build: (String, u16) = ("".to_string(), 0);
 
+    let current_version_exists: bool;
     let mut passed_version: bool = false;
     let mut wants_latest: bool = false;
 
@@ -113,15 +113,6 @@ fn main() {
     wanted_version_build.1 =
         get_latest_build(&agent, &wanted_version_build.0).expect("Failed to get build");
 
-    // Check if the version is already downloaded
-    if current_version_exists
-        && (current_version_build.0 != wanted_version_build.0
-            && current_version_build.1 != wanted_version_build.1)
-    {
-        info!("Server is already up-to-date");
-        return;
-    }
-
     // Log the existing version if it exists
     if current_version_exists {
         info!(
@@ -135,6 +126,15 @@ fn main() {
         "Wanted version: Purpur {} build {}",
         wanted_version_build.0, wanted_version_build.1
     );
+
+    // Check if the version is already downloaded
+    if current_version_exists
+        && (current_version_build.0 == wanted_version_build.0
+            && current_version_build.1 == wanted_version_build.1)
+    {
+        info!("Server is already up-to-date");
+        return;
+    }
 
     // Get hash for version
     let hash = get_hash(&agent, &wanted_version_build.0, &wanted_version_build.1)
