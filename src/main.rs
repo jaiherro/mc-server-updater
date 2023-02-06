@@ -288,8 +288,9 @@ fn help() {
 
     // Examples
     println!("EXAMPLES:");
-    println!("    {}{} -v 1.19.3", NAME, EXTENSION);
+    println!("    {}{}", NAME, EXTENSION);
     println!("    {}{} -l", NAME, EXTENSION);
+    println!("    {}{} -v 1.19.3", NAME, EXTENSION);
 }
 
 // https://api.purpurmc.org/v2/purpur
