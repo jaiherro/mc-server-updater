@@ -302,24 +302,16 @@ struct Purpur {
 #[derive(Deserialize)]
 struct Version {
     builds: Builds,
-    _project: String,
-    _version: String,
 }
 #[derive(Deserialize)]
 struct Builds {
     all: Vec<String>,
-    _latest: String,
 }
 
 // https://api.purpurmc.org/v2/purpur/{version}/{build} or https://api.purpurmc.org/v2/purpur/{version}/latest
 #[derive(Deserialize)]
 struct Build {
-    _build: String,
     md5: String,
-    _project: String,
-    _result: String,
-    _timestamp: u64,
-    _version: String,
 }
 
 // version_history.json
