@@ -1,3 +1,4 @@
+use reqwest::blocking::{Client, Response};
 use serde::Deserialize;
 use std::{
     env,
@@ -9,9 +10,19 @@ use std::{
 };
 use tracing::{error, info, subscriber, warn, Level};
 use tracing_subscriber::FmtSubscriber;
-use ureq::{Agent, AgentBuilder};
 
 fn main() {
+    let client = Client::new();
+    let response = client
+        .get("https://www.rust-lang.org")
+        .send()
+        .expect("working");
+
+    let body = response.text().expect("working");
+    println!("body = {:?}", body);
+}
+
+fn old_main() {
     // Get arguments
     let args: Vec<String> = env::args().collect();
 
