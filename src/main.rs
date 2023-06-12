@@ -1,3 +1,4 @@
+use clap::Parser;
 use reqwest::blocking::{Client, Response};
 use serde::Deserialize;
 use std::{
@@ -5,21 +6,40 @@ use std::{
     error::Error,
     fs::{self, File},
     io::Write,
+    ops::ControlFlow,
     path::Path,
     time::Duration,
 };
 use tracing::{error, info, subscriber, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
-fn main() {
-    let client = Client::new();
-    let response = client
-        .get("https://www.rust-lang.org")
-        .send()
-        .expect("working");
+#[derive(Parser)]
+#[command(author, version, about)]
+struct Args {
+    /// The game version to download (e.g. 1.20)
+    #[arg(short, long, conflicts_with = "latest")]
+    version: String,
 
-    let body = response.text().expect("working");
-    println!("body = {:?}", body);
+    /// Download the absolute latest version
+    #[arg(short, long, conflicts_with = "version")]
+    latest: bool,
+}
+
+fn main() {
+    // Get arguments
+    let args: Args = Args::parse();
+
+    // Create a client
+    let client: Client = Client::new();
+
+    // Create debugger subscriber
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
+    // Variables
+    let file_name: &str = "server.jar";
 }
 
 fn old_main() {
@@ -264,44 +284,6 @@ fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
         fs::remove_file(format!("{}", file_name)).expect("Failed to remove file");
         return Err("Binary failed hash verification".into());
     }
-}
-
-fn help() {
-    // Get version from Cargo.toml
-    const NAME: &str = env!("CARGO_PKG_NAME");
-    const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    const EXTENSION: &str = "";
-
-    #[cfg(target_os = "windows")]
-    const EXTENSION: &str = ".exe";
-
-    // Print help
-    println!("updater v{}\n", VERSION);
-    println!("USAGE:");
-    println!("    {}{} [FLAGS] [ARGS]\n", NAME, EXTENSION);
-
-    // Flags
-    println!("FLAGS:");
-    println!("    -v, -version    Specify a version to download");
-    println!("    -l, -latest     Download the latest version\n");
-
-    // Arguments
-    println!("ARGS:");
-    println!("    VERSION         Specify a version to download\n");
-
-    // Discussion
-    println!("DISCUSSION:");
-    println!("    If no flags or arguments are specified, and the currently run");
-    println!("    version of Purpur (Minecraft) can be found, the script will");
-    println!("    remain on that version and only download new builds for it.\n");
-
-    // Examples
-    println!("EXAMPLES:");
-    println!("    {}{}", NAME, EXTENSION);
-    println!("    {}{} -l", NAME, EXTENSION);
-    println!("    {}{} -v 1.19.3", NAME, EXTENSION);
 }
 
 // https://api.purpurmc.org/v2/purpur
