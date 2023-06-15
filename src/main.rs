@@ -1,5 +1,5 @@
 use clap::Parser;
-use reqwest::blocking::{Client, Response};
+use reqwest::{Client, Response};
 use serde::Deserialize;
 use std::{
     env,
@@ -25,7 +25,8 @@ struct Args {
     latest: bool,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Get arguments
     let args: Args = Args::parse();
 
@@ -40,184 +41,137 @@ fn main() {
 
     // Variables
     let file_name: &str = "server.jar";
-}
 
-fn old_main() {
-    // Get arguments
-    let args: Vec<String> = env::args().collect();
-
-    // Variables
-    let file_name: &str = "server.jar";
-    let agent: Agent = AgentBuilder::new()
-        .timeout_read(Duration::from_secs(5))
-        .timeout_write(Duration::from_secs(5))
-        .build();
-    let mut current_version_build: (String, u16) = ("".to_string(), 0);
-    let mut wanted_version_build: (String, u16) = ("".to_string(), 0);
-
-    let current_version_exists: bool;
-    let mut passed_version: bool = false;
-    let mut wants_latest: bool = false;
-
-    // Setup debugger
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .finish();
-    subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-
-    // Flag/argument parser
-    if args.len() > 1 {
-        match args[1].as_str() {
-            // Version
-            "-v" | "--v" | "-version" | "--version" => {
-                info!("Version {} requested", &args[2]);
-                passed_version = true;
-            }
-
-            // Latest
-            "-l" | "--l" | "-latest" | "--latest" => {
-                info!("Latest version requested");
-                wants_latest = true;
-            }
-
-            // Help
-            "-h" | "--h" | "-help" | "--help" => {
-                help();
-                return;
-            }
-
-            // Unknown
-            _ => {
-                // List all unknown arguments
-                // TODO: add .advance_by(1) to skip the first argument once the function is stabilised https://github.com/rust-lang/rust/issues/77404
-                // for arg in args.iter() {
-                //     error!("Unknown argument: {}", arg);
-                // }
-
-                // Announce the first unknown argument
-                error!("Unknown argument: {}", args[1]);
-
-                // Show how to call help
-                info!("Use -h or --help to show help");
-
-                // Panic
-                panic!("Panicking due to unknown arguments");
-            }
+    // Extract local version and build information from version_history.json
+    let local_version_build: VersionBuild = match extract_local_version_and_build() {
+        Ok(local_version_build) => local_version_build,
+        Err(error) => {
+            error!(
+                "Failed to extract local version and build information: {}",
+                error
+            );
+            panic!("Panicking due to failed extraction of local version and build information");
         }
-    }
+    };
 
-    // Check for existing version
-    info!("Checking for existing version information");
-
-    // If version_history.json exists, read it
-    if Path::new("version_history.json").exists() {
-        // Read the file
-        let version_history_contents = fs::read_to_string("version_history.json").unwrap();
-        let version_history_json: VersionHistory =
-            serde_json::from_str(version_history_contents.as_str()).unwrap();
-
-        info!("Information found");
-
-        // Set the current version
-        current_version_exists = true;
-        current_version_build = extract_version_and_build(&version_history_json.current_version);
+    // Determine what version and build to download
+    let version_build: VersionBuild = if args.latest {
+        // Get the latest version and build information from the API
+        let latest_version_build: VersionBuild = match get_latest_version_and_build(&client).await {
+            Ok(latest_version_build) => latest_version_build,
+            Err(error) => {
+                error!(
+                    "Failed to get latest version and build information: {}",
+                    error
+                );
+                panic!(
+                    "Panicking due to failed extraction of latest version and build information"
+                );
+            }
+        };
+        // Check if the latest build is newer than the local build
+        if latest_version_build.version != local_version_build.version
+            && latest_version_build.build > local_version_build.build
+        {
+            info!("Latest version is newer than local version");
+            latest_version_build
+        } else {
+            info!("Latest version is not newer than local version");
+            local_version_build
+        }
     } else {
-        info!("No information found");
-        current_version_exists = false;
-    }
+        // Check if the passed version is newer than the local version
+        if args.version > local_version_build.version {
+            info!("Passed version is newer than local version");
+            VersionBuild {
+                version: args.version,
+                build: 0,
+            }
+        } else {
+            info!("Passed version is not newer than local version");
+            local_version_build
+        }
+    };
 
-    // Determine the version to download
-    if passed_version {
-        wanted_version_build.0 = args[2].clone();
-    } else if wants_latest | !current_version_exists {
-        let mut all_game_versions: Vec<String> =
-            get_all_game_versions(&agent).expect("Failed to get versions");
-        wanted_version_build.0 = get_latest_valid_version(&agent, &mut all_game_versions)
-            .expect("Couldn't get latest version");
-    } else if current_version_exists {
-        wanted_version_build.0 = current_version_build.0.clone();
-    } else {
-        panic!("Failed to intelligently determine appropriate version");
-    }
-
-    // Get the latest build number for a specific version
-    wanted_version_build.1 =
-        get_latest_build(&agent, &wanted_version_build.0).expect("Failed to get build");
-
-    // Log the existing version if it exists
-    if current_version_exists {
-        info!(
-            "Existing version: Purpur {} build {}",
-            current_version_build.0, current_version_build.1
-        );
-    }
-
-    // Log the wanted version
-    info!(
-        "Wanted version: Purpur {} build {}",
-        wanted_version_build.0, wanted_version_build.1
-    );
-
-    // Check if the version is already downloaded
-    if current_version_exists
-        && (current_version_build.0 == wanted_version_build.0
-            && current_version_build.1 == wanted_version_build.1)
+    // Check if the version and build are the same as the local version and build
+    if version_build.version == local_version_build.version
+        && version_build.build == local_version_build.build
     {
-        info!("Server is already up-to-date");
+        info!("Version and build are the same as the local version and build");
+        info!("Skipping download");
         return;
     }
 
-    // Get hash for version
-    let hash = get_hash(&agent, &wanted_version_build.0, &wanted_version_build.1)
-        .expect("Failed to get file.");
-
-    // Construct the URL
-    let binary_url = format!(
-        "https://api.purpurmc.org/v2/purpur/{}/{}/download",
-        wanted_version_build.0, wanted_version_build.1
-    );
-
-    // Download the file
-    info!(
-        "Downloading: Purpur {} build {}",
-        wanted_version_build.0, wanted_version_build.1
-    );
-    download_file(&agent, &binary_url, file_name).unwrap();
-    verify_binary(&file_name, &hash).expect("Failed to verify binary");
-
-    info!("All tasks completed successfully, server is up-to-date");
+    // Download the server.jar
+    info!("Downloading server.jar");
+    match download_server_jar(&client, version_build).await {
+        Ok(_) => info!("Downloaded server.jar"),
+        Err(error) => {
+            error!("Failed to download server.jar: {}", error);
+            panic!("Panicking due to failed download of server.jar");
+        }
+    };
 }
 
-fn extract_version_and_build(version: &str) -> (String, u16) {
-    let version_split: Vec<&str> = version.split(" (MC: ").collect();
-    let version = version_split[1].replace(")", "");
-    let build = version_split[0].replace("git-Purpur-", "");
-    return (version, build.parse().unwrap());
-}
+fn extract_local_version_and_build() -> Result<VersionBuild, String> {
+    // Check for existing version
+    info!("Checking for existing local version information");
 
-fn get_latest_valid_version(
-    agent: &Agent,
-    all_game_versions: &Vec<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
-    for version in all_game_versions.iter().rev() {
-        match get_latest_build(&agent, &version) {
-            Ok(_) => {
-                return Ok(version.clone().into());
-            }
-            Err(_) => {
-                warn!(
-                    "No builds exist for {}, checking next latest version",
-                    version
-                );
-                continue;
-            }
-        };
+    // If version_history.json exists, read it
+    if !Path::new("version_history.json").exists() {
+        return Err("Failed to find version history".to_string());
     }
-    return Err("No valid versions found".into());
+
+    // Read the file
+    let version_history_contents: String = match fs::read_to_string("version_history.json") {
+        Ok(version_history_contents) => version_history_contents,
+        Err(_) => return Err("Failed to read version history".to_string()),
+    };
+    let version_history_json: VersionHistory =
+        match serde_json::from_str(version_history_contents.as_str()) {
+            Ok(version_history_json) => version_history_json,
+            Err(_) => return Err("Failed to parse version history".to_string()),
+        };
+
+    // Extract the version and build
+    let version_split: Vec<&str> = version_history_json
+        .current_version
+        .split(" (MC: ")
+        .collect();
+    let version: String = version_split[1].replace(")", "");
+    let build: String = version_split[0].replace("git-Purpur-", "");
+
+    // Parse build to u16 and match result
+    let build: u16 = match build.parse::<u16>() {
+        Ok(build) => build,
+        Err(_) => return Err(format!("Failed to parse build number: {}", build)),
+    };
+
+    info!("Information found");
+
+    // Return the version and build as struct
+    Ok(VersionBuild { version, build })
 }
 
-fn get_all_game_versions(agent: &Agent) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let version = agent
+async fn get_latest_version_and_build(client: &Client) -> Result<VersionBuild, String> {
+    // Get the latest version and build information from the API
+    info!("Getting latest version and build information from API");
+    let latest_version_build: VersionBuild =
+        match client.get("https://api.pl3x.net/v2/purpur").send().await {
+            Ok(response) => match response.json::<VersionBuild>().await {
+                Ok(latest_version_build) => latest_version_build,
+                Err(_) => return Err("Failed to parse response".to_string()),
+            },
+            Err(_) => return Err("Failed to get response".to_string()),
+        };
+    info!("Latest version and build information found");
+
+    // Return the latest version and build as struct
+    Ok(latest_version_build)
+}
+
+async fn get_all_game_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let version = client
         .get("https://api.purpurmc.org/v2/purpur")
         .call()?
         .into_json::<Purpur>()?
@@ -226,8 +180,8 @@ fn get_all_game_versions(agent: &Agent) -> Result<Vec<String>, Box<dyn std::erro
     Ok(version)
 }
 
-fn get_latest_build(agent: &Agent, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
-    let build = agent
+async fn get_latest_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
+    let build = client
         .get(format!("https://api.purpurmc.org/v2/purpur/{}", version).as_str())
         .call()?
         .into_json::<Version>()?
@@ -239,8 +193,8 @@ fn get_latest_build(agent: &Agent, version: &String) -> Result<u16, Box<dyn std:
     Ok(build.parse::<u16>().unwrap())
 }
 
-fn get_hash(agent: &Agent, version: &String, build: &u16) -> Result<String, Box<dyn Error>> {
-    let result = agent
+async fn get_hash(client: &Client, version: &String, build: &u16) -> Result<String, Box<dyn Error>> {
+    let result = client
         .get(format!("https://api.purpurmc.org/v2/purpur/{}/{}", version, build).as_str())
         .call()?
         .into_json::<Build>()?;
@@ -248,9 +202,9 @@ fn get_hash(agent: &Agent, version: &String, build: &u16) -> Result<String, Box<
     Ok(result.md5.to_uppercase())
 }
 
-fn download_file(agent: &Agent, url: &String, file_name: &str) -> Result<(), Box<dyn Error>> {
+fn download_file(client: &Client, url: &String, file_name: &str) -> Result<(), Box<dyn Error>> {
     // Reqwest setup
-    let resp = agent
+    let resp = client
         .get(url)
         .call()
         .or(Err(format!("Failed to GET from '{}'", &url)))?;
@@ -284,6 +238,12 @@ fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
         fs::remove_file(format!("{}", file_name)).expect("Failed to remove file");
         return Err("Binary failed hash verification".into());
     }
+}
+
+#[derive(Deserialize)]
+struct VersionBuild {
+    version: String,
+    build: u16,
 }
 
 // https://api.purpurmc.org/v2/purpur
