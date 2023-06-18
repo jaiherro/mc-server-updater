@@ -21,7 +21,7 @@ struct Args {
 
     /// Download the absolute latest release
     #[arg(short, long, conflicts_with = "release")]
-    latest: Option<bool>,
+    latest: bool,
 }
 
 #[tokio::main]
@@ -47,84 +47,82 @@ async fn main() {
         Err(_) => {
             warn!("Failed to extract local version and build information");
             VersionBuild {
-                version: "0.0".to_string(),
+                release: "0.0".to_string(),
                 build: 0,
             }
         }
     };
 
-    info!("Arg version: {:#?}", args.release);
-    info!("Arg latest: {:#?}", args.latest);
+    // Determine what version and build to download
+    let version_build: VersionBuild = if args.latest {
+        // Get the latest version and build information from the API
+        let latest_version_build: VersionBuild =
+            match forks::purpur::get_latest_version_and_build(&client).await {
+                Ok(latest_version_build) => latest_version_build,
+                Err(error) => {
+                    error!(
+                        "Failed to get latest version and build information: {}",
+                        error
+                    );
+                    panic!(
+                    "Panicking due to failed extraction of latest version and build information"
+                );
+                }
+            };
+        // Check if the latest build is newer than the local build
+        if latest_version_build.release != local_version_build.release
+            && latest_version_build.build > local_version_build.build
+        {
+            info!("Latest version is newer than local version");
+            latest_version_build
+        } else {
+            info!("Latest version is not newer than local version");
+            local_version_build
+        }
+    } else if args.release.unwrap() != "" {
+        // Check if the passed version is newer than the local version
+        if args.release > local_version_build.release {
+            info!("Passed version is newer than local version");
+            VersionBuild {
+                release: args.release,
+                build: 0,
+            }
+        } else {
+            info!("Passed version is not newer than local version");
+            local_version_build
+        }
+    } else {
+        // Check if the passed version is newer than the local version
+        if args.release > local_version_build.release {
+            info!("Passed version is newer than local version");
+            VersionBuild {
+                release: args.release,
+                build: 0,
+            }
+        } else {
+            info!("Passed version is not newer than local version");
+            local_version_build
+        }
+    };
 
-    // // Determine what version and build to download
-    // let version_build: VersionBuild = if args.latest {
-    //     // Get the latest version and build information from the API
-    //     let latest_version_build: VersionBuild = match forks::purpur::get_latest_version_and_build(&client).await {
-    //         Ok(latest_version_build) => latest_version_build,
-    //         Err(error) => {
-    //             error!(
-    //                 "Failed to get latest version and build information: {}",
-    //                 error
-    //             );
-    //             panic!(
-    //                 "Panicking due to failed extraction of latest version and build information"
-    //             );
-    //         }
-    //     };
-    //     // Check if the latest build is newer than the local build
-    //     if latest_version_build.version != local_version_build.version
-    //         && latest_version_build.build > local_version_build.build
-    //     {
-    //         info!("Latest version is newer than local version");
-    //         latest_version_build
-    //     } else {
-    //         info!("Latest version is not newer than local version");
-    //         local_version_build
-    //     }
-    // } else if args.version != "" {
-    //     // Check if the passed version is newer than the local version
-    //     if args.version > local_version_build.version {
-    //         info!("Passed version is newer than local version");
-    //         VersionBuild {
-    //             version: args.version,
-    //             build: 0,
-    //         }
-    //     } else {
-    //         info!("Passed version is not newer than local version");
-    //         local_version_build
-    //     }
-    // } else {
-    //     // Check if the passed version is newer than the local version
-    //     if args.version > local_version_build.version {
-    //         info!("Passed version is newer than local version");
-    //         VersionBuild {
-    //             version: args.version,
-    //             build: 0,
-    //         }
-    //     } else {
-    //         info!("Passed version is not newer than local version");
-    //         local_version_build
-    //     }
-    // };
+    // Check if the version and build are the same as the local version and build
+    if version_build.release == local_version_build.release
+        && version_build.build == local_version_build.build
+    {
+        info!("Version and build are the same as the local version and build");
+        info!("Skipping download");
+        return;
+    }
 
-    // // Check if the version and build are the same as the local version and build
-    // if version_build.version == local_version_build.version
-    //     && version_build.build == local_version_build.build
-    // {
-    //     info!("Version and build are the same as the local version and build");
-    //     info!("Skipping download");
-    //     return;
-    // }
-
-    // // Download the server.jar
-    // info!("Downloading server.jar");
-    // match download_server_jar(&client, version_build).await {
-    //     Ok(_) => info!("Downloaded server.jar"),
-    //     Err(error) => {
-    //         error!("Failed to download server.jar: {}", error);
-    //         panic!("Panicking due to failed download of server.jar");
-    //     }
-    // };
+    // Download the server.jar
+    info!("Downloading server.jar");
+    match download_server_jar(&client, version_build).await {
+        Ok(_) => info!("Downloaded server.jar"),
+        Err(error) => {
+            error!("Failed to download server.jar: {}", error);
+            panic!("Panicking due to failed download of server.jar");
+        }
+    };
 }
 
 fn extract_local_version_and_build() -> Result<VersionBuild, String> {
@@ -212,7 +210,7 @@ fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
 // Standard version+build struct
 #[derive(Deserialize)]
 struct VersionBuild {
-    version: String,
+    release: String,
     build: u16,
 }
 
