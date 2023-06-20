@@ -10,12 +10,18 @@ use std::{
 use tracing::{error, info, subscriber, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
-mod forks;
+mod variants;
 
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
+    /// The server variant to download (e.g. paper, purpur, etc.)
+    /// [default: paper]
+    #[arg(short, long, default_value = "paper")]
+    variant: Option<String>,
+
     /// The game release to download (e.g. 1.20)
+    /// [default: currently installed version, else latest]
     #[arg(short, long, conflicts_with = "latest")]
     release: Option<String>,
 
@@ -47,80 +53,10 @@ async fn main() {
         Err(_) => {
             warn!("Failed to extract local version and build information");
             VersionBuild {
+                variant: args.variant.unwrap(),
                 release: "0.0".to_string(),
                 build: 0,
             }
-        }
-    };
-
-    // Determine what version and build to download
-    let version_build: VersionBuild = if args.latest {
-        // Get the latest version and build information from the API
-        let latest_version_build: VersionBuild =
-            match forks::purpur::get_latest_version_and_build(&client).await {
-                Ok(latest_version_build) => latest_version_build,
-                Err(error) => {
-                    error!(
-                        "Failed to get latest version and build information: {}",
-                        error
-                    );
-                    panic!(
-                    "Panicking due to failed extraction of latest version and build information"
-                );
-                }
-            };
-        // Check if the latest build is newer than the local build
-        if latest_version_build.release != local_version_build.release
-            && latest_version_build.build > local_version_build.build
-        {
-            info!("Latest version is newer than local version");
-            latest_version_build
-        } else {
-            info!("Latest version is not newer than local version");
-            local_version_build
-        }
-    } else if args.release.unwrap() != "" {
-        // Check if the passed version is newer than the local version
-        if args.release > local_version_build.release {
-            info!("Passed version is newer than local version");
-            VersionBuild {
-                release: args.release,
-                build: 0,
-            }
-        } else {
-            info!("Passed version is not newer than local version");
-            local_version_build
-        }
-    } else {
-        // Check if the passed version is newer than the local version
-        if args.release > local_version_build.release {
-            info!("Passed version is newer than local version");
-            VersionBuild {
-                release: args.release,
-                build: 0,
-            }
-        } else {
-            info!("Passed version is not newer than local version");
-            local_version_build
-        }
-    };
-
-    // Check if the version and build are the same as the local version and build
-    if version_build.release == local_version_build.release
-        && version_build.build == local_version_build.build
-    {
-        info!("Version and build are the same as the local version and build");
-        info!("Skipping download");
-        return;
-    }
-
-    // Download the server.jar
-    info!("Downloading server.jar");
-    match download_server_jar(&client, version_build).await {
-        Ok(_) => info!("Downloaded server.jar"),
-        Err(error) => {
-            error!("Failed to download server.jar: {}", error);
-            panic!("Panicking due to failed download of server.jar");
         }
     };
 }
@@ -145,13 +81,16 @@ fn extract_local_version_and_build() -> Result<VersionBuild, String> {
             Err(_) => return Err("Failed to parse version history".to_string()),
         };
 
-    // Extract the version and build
-    let version_split: Vec<&str> = version_history_json
+    // Extract the variant, release, and build
+    let release_split: Vec<&str> = version_history_json
         .current_version
         .split(" (MC: ")
         .collect();
-    let version: String = version_split[1].replace(")", "");
-    let build: String = version_split[0].replace("git-Purpur-", "");
+    let release: String = release_split[1].replace(")", "");
+
+    let variant_build_split: Vec<&str> = release_split[0].split('-').collect();
+    let variant: String = variant_build_split[1].to_string().to_lowercase();
+    let build: String = variant_build_split[2].replace("git-Purpur-", "");
 
     // Parse build to u16 and match result
     let build: u16 = match build.parse::<u16>() {
@@ -162,7 +101,11 @@ fn extract_local_version_and_build() -> Result<VersionBuild, String> {
     info!("Information found");
 
     // Return the version and build as struct
-    Ok(VersionBuild { version, build })
+    Ok(VersionBuild {
+        variant,
+        release,
+        build,
+    })
 }
 
 async fn download_file(
@@ -210,6 +153,7 @@ fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
 // Standard version+build struct
 #[derive(Deserialize)]
 struct VersionBuild {
+    variant: String,
     release: String,
     build: u16,
 }

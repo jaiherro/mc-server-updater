@@ -1,0 +1,70 @@
+    // Determine what version and build to download
+    let version_build: VersionBuild = if args.latest {
+        // Get the latest version and build information from the API
+        let latest_version_build: VersionBuild =
+            match variants::purpur::get_latest_version_and_build(&client).await {
+                Ok(latest_version_build) => latest_version_build,
+                Err(error) => {
+                    error!(
+                        "Failed to get latest version and build information: {}",
+                        error
+                    );
+                    panic!(
+                    "Panicking due to failed extraction of latest version and build information"
+                );
+                }
+            };
+        // Check if the latest build is newer than the local build
+        if latest_version_build.release != local_version_build.release
+            && latest_version_build.build > local_version_build.build
+        {
+            info!("Latest version is newer than local version");
+            latest_version_build
+        } else {
+            info!("Latest version is not newer than local version");
+            local_version_build
+        }
+    } else if args.release.unwrap() != "" {
+        // Check if the passed version is newer than the local version
+        if args.release > local_version_build.release {
+            info!("Passed version is newer than local version");
+            VersionBuild {
+                release: args.release,
+                build: 0,
+            }
+        } else {
+            info!("Passed version is not newer than local version");
+            local_version_build
+        }
+    } else {
+        // Check if the passed version is newer than the local version
+        if args.release > local_version_build.release {
+            info!("Passed version is newer than local version");
+            VersionBuild {
+                release: args.release,
+                build: 0,
+            }
+        } else {
+            info!("Passed version is not newer than local version");
+            local_version_build
+        }
+    };
+
+    // Check if the version and build are the same as the local version and build
+    if version_build.release == local_version_build.release
+        && version_build.build == local_version_build.build
+    {
+        info!("Version and build are the same as the local version and build");
+        info!("Skipping download");
+        return;
+    }
+
+    // Download the server.jar
+    info!("Downloading server.jar");
+    match download_server_jar(&client, version_build).await {
+        Ok(_) => info!("Downloaded server.jar"),
+        Err(error) => {
+            error!("Failed to download server.jar: {}", error);
+            panic!("Panicking due to failed download of server.jar");
+        }
+    };
