@@ -48,7 +48,7 @@ async fn main() {
     let file_name: &str = "server.jar";
 
     // Extract local version and build information from version_history.json
-    let local_version_build: VersionBuild = match extract_local_version_and_build() {
+    let local_information: VersionBuild = match extract_local_information() {
         Ok(local_version_build) => local_version_build,
         Err(_) => {
             warn!("Failed to extract local version and build information");
@@ -59,9 +59,12 @@ async fn main() {
             }
         }
     };
+
+    
+
 }
 
-fn extract_local_version_and_build() -> Result<VersionBuild, String> {
+fn extract_local_information() -> Result<VersionBuild, String> {
     // Check for existing version
     info!("Checking for existing local version information");
 
@@ -90,7 +93,7 @@ fn extract_local_version_and_build() -> Result<VersionBuild, String> {
 
     let variant_build_split: Vec<&str> = release_split[0].split('-').collect();
     let variant: String = variant_build_split[1].to_string().to_lowercase();
-    let build: String = variant_build_split[2].replace("git-Purpur-", "");
+    let build: String = variant_build_split[2].to_string();
 
     // Parse build to u16 and match result
     let build: u16 = match build.parse::<u16>() {
