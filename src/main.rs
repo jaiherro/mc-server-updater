@@ -16,12 +16,10 @@ mod variants;
 #[command(author, version, about)]
 struct Args {
     /// The server variant to download (e.g. paper, purpur, etc.)
-    /// [default: paper]
     #[arg(short, long, default_value = "paper")]
     variant: Option<String>,
 
     /// The game release to download (e.g. 1.20)
-    /// [default: currently installed version, else latest]
     #[arg(short, long, conflicts_with = "latest")]
     release: Option<String>,
 
