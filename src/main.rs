@@ -51,14 +51,77 @@ async fn main() {
         Err(_) => {
             warn!("Failed to extract local version and build information");
             VersionBuild {
-                variant: args.variant.unwrap(),
+                variant: args.variant.as_deref().unwrap().to_string(),
                 release: "0.0".to_string(),
                 build: 0,
             }
         }
     };
 
-    
+    // If local information exists but is different to the requested variant, warn the user
+    if local_information.variant != args.variant.as_deref().unwrap() {
+        warn!("Local variant is different to requested variant");
+    }
+
+    // Match the arguments to determine the scripts logic
+
+    // Standard rust match statement
+    match (args.variant.as_deref().unwrap(), args.release, args.latest) {
+        // If the user has supplied both a release and latest, warn them and break
+        (_, Some(_), true) => {
+            warn!("Both release and latest supplied, ignoring latest");
+            return;
+        }
+
+        // If the user has supplied a release, download it
+        (_, Some(release), false) => {
+            // Check if the release is valid
+            if !variants::get_variants().contains(&release.as_str()) {
+                error!("Invalid release supplied, please check the releases on the website");
+                return;
+            }
+
+            // Download the release
+            if let Err(err) = download_release(
+                &client,
+                &release,
+                &args.variant.as_deref().unwrap().to_string(),
+                &file_name,
+            )
+            .await
+            {
+                error!("{}", err);
+            }
+        }
+
+        // If the user has supplied latest, download the latest release
+        (_, None, true) => {
+            // Download latest release
+            if let Err(err) = download_latest_release(
+                &client,
+                &args.variant.as_deref().unwrap().to_string(),
+                &file_name,
+            )
+            .await
+            {
+                error!("{}", err);
+            }
+        }
+
+        // If the user has supplied neither a release or latest, download the latest release
+        (_, None, false) => {
+            // Download latest release
+            if let Err(err) = download_latest_release(
+                &client,
+                &args.variant.as_deref().unwrap().to_string(),
+                &file_name,
+            )
+            .await
+            {
+                error!("{}", err);
+            }
+        }
+    }
 
 }
 

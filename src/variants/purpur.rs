@@ -23,7 +23,9 @@ pub async fn get_latest_version_and_build(client: &Client) -> Result<VersionBuil
     Ok(latest_version_build)
 }
 
-pub async fn get_all_game_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub async fn get_all_game_versions(
+    client: &Client,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let version = client
         .get("https://api.purpurmc.org/v2/purpur")
         .send()
@@ -39,18 +41,18 @@ pub async fn get_latest_build(
     client: &Client,
     version: &String,
 ) -> Result<u16, Box<dyn std::error::Error>> {
-    let build = client
+    let build: String = client
         .get(format!("https://api.purpurmc.org/v2/purpur/{}", version).as_str())
         .send()
         .await?
         .json::<Version>()
         .await?
         .builds
-        .all
-        .pop()
-        .unwrap();
+        .latest;
 
-    Ok(build.parse::<u16>().unwrap())
+    // Parse the build number to u16
+    let build: u16 = build.parse::<u16>().unwrap();
+    Ok(build)
 }
 
 pub async fn get_hash(
@@ -81,6 +83,7 @@ struct Version {
 }
 #[derive(Deserialize)]
 struct Builds {
+    latest: String,
     all: Vec<String>,
 }
 
