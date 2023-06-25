@@ -68,3 +68,23 @@
             panic!("Panicking due to failed download of server.jar");
         }
     };
+
+
+//////
+
+pub async fn get_latest_version_and_build(client: &Client) -> Result<VersionBuild, String> {
+    // Get the latest version and build information from the API
+    info!("Getting latest version and build information from API");
+    let latest_version_build: VersionBuild =
+        match client.get("https://api.pl3x.net/v2/purpur").send().await {
+            Ok(response) => match response.json::<VersionBuild>().await {
+                Ok(latest_version_build) => latest_version_build,
+                Err(_) => return Err("Failed to parse response".to_string()),
+            },
+            Err(_) => return Err("Failed to get response".to_string()),
+        };
+    info!("Latest version and build information found");
+
+    // Return the latest version and build as struct
+    Ok(latest_version_build)
+}

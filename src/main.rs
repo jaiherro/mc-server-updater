@@ -198,22 +198,6 @@ async fn download_file(
     return Ok(());
 }
 
-fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
-    // Verifying binary integrity
-    info!("Verifying file integrity");
-    let contents = fs::read(format!("{}", file_name)).expect("Failed to read downloaded file");
-    let digest = md5::compute(contents);
-    let downloaded_file_hash = format!("{:X}", digest);
-    if &downloaded_file_hash == hash {
-        info!("Hashes match, file verified");
-        return Ok(());
-    } else {
-        error!("Hashes do not match, downloaded binary may be corrupted, erasing file.");
-        fs::remove_file(format!("{}", file_name)).expect("Failed to remove file");
-        return Err("Binary failed hash verification".into());
-    }
-}
-
 // Standard version+build struct
 #[derive(Deserialize)]
 struct VersionBuild {
