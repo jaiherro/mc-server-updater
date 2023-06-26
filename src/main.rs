@@ -64,65 +64,44 @@ async fn main() {
     }
 
     // Match the arguments to determine the scripts logic
-
-    // Standard rust match statement
-    match (args.variant.as_deref().unwrap(), args.release, args.latest) {
-        // If the user has supplied both a release and latest, warn them and break
-        (_, Some(_), true) => {
-            warn!("Both release and latest supplied, ignoring latest");
-            return;
-        }
-
-        // If the user has supplied a release, download it
-        (_, Some(release), false) => {
-            // Check if the release is valid
-            if !variants::get_variants().contains(&release.as_str()) {
-                error!("Invalid release supplied, please check the releases on the website");
-                return;
-            }
-
-            // Download the release
-            if let Err(err) = download_release(
-                &client,
-                &release,
-                &args.variant.as_deref().unwrap().to_string(),
-                &file_name,
-            )
-            .await
-            {
-                error!("{}", err);
+    match (args.variant, args.release, args.latest) {
+        // If variant and release are provided, download the requested release
+        (Some(variant), Some(release), _) => {
+            info!("Downloading requested release");
+            match download_release(&client, &variant, &release, file_name).await {
+                Ok(_) => info!("Downloaded requested release"),
+                Err(error) => error!("Failed to download requested release: {}", error),
             }
         }
 
-        // If the user has supplied latest, download the latest release
-        (_, None, true) => {
-            // Download latest release
-            if let Err(err) = download_latest_release(
-                &client,
-                &args.variant.as_deref().unwrap().to_string(),
-                &file_name,
-            )
-            .await
-            {
-                error!("{}", err);
+        // If variant and latest are provided, download the latest release
+        (Some(variant), _, true) => {
+            info!("Downloading latest release");
+            match download_latest_release(&client, &variant, file_name).await {
+                Ok(_) => info!("Downloaded latest release"),
+                Err(error) => error!("Failed to download latest release: {}", error),
             }
         }
 
-        // If the user has supplied neither a release or latest, download the latest release
-        (_, None, false) => {
-            // Download latest release
-            if let Err(err) = download_latest_release(
-                &client,
-                &args.variant.as_deref().unwrap().to_string(),
-                &file_name,
-            )
-            .await
-            {
-                error!("{}", err);
+        // If variant is provided but no release or latest, download the latest release
+        (Some(variant), _, _) => {
+            info!("Downloading latest release");
+            match download_latest_release(&client, &variant, file_name).await {
+                Ok(_) => info!("Downloaded latest release"),
+                Err(error) => error!("Failed to download latest release: {}", error),
             }
         }
+
+        // If no variant is provided, warn the user
+        (None, _, _) => warn!("No variant provided"),
     }
 
+    // Verify the integrity of the downloaded file
+    info!("Verifying file integrity");
+    match verify_binary(file_name, &local_information.md5) {
+        Ok(_) => info!("File integrity verified"),
+        Err(error) => error!("Failed to verify file integrity: {}", error),
+    }
 }
 
 fn extract_local_information() -> Result<VersionBuild, String> {

@@ -1,5 +1,9 @@
-use std::{error::Error, fs};
+use std::{
+    error::Error,
+    fs::{read, remove_file},
+};
 
+use md5::{Digest, Md5};
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::{error, info};
@@ -54,17 +58,25 @@ pub async fn get_hash(
 pub fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
     // Verifying binary integrity
     info!("Verifying file integrity");
-    let contents = fs::read(file_name).expect("Failed to read downloaded file");
-    let digest = md5::compute(contents);
-    let downloaded_file_hash = format!("{:X}", digest);
-    if &downloaded_file_hash == hash {
-        info!("Hashes match, file verified");
-        return Ok(());
-    } else {
-        error!("Hashes do not match, downloaded binary may be corrupted, erasing file.");
-        fs::remove_file(format!("{}", file_name)).expect("Failed to remove file");
-        return Err("Binary failed hash verification".into());
+
+    // Read file
+    let file = read(file_name)?;
+
+    let mut hasher = Md5::new();
+    hasher.update(&file);
+    let result = hasher.finalize();
+
+    // Compare hashes
+    let file_hash = format!("{:X}", result);
+    if file_hash != *hash {
+        error!("Hashes do not match");
+        remove_file(&file_name).expect("Failed to remove file");
+        return Err("Hashes do not match".into());
     }
+
+    info!("Hashes match");
+
+    Ok(())
 }
 
 // https://api.purpurmc.org/v2/purpur

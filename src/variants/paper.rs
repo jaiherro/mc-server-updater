@@ -1,8 +1,12 @@
-use std::{error::Error, fs};
+use std::{
+    error::Error,
+    fs::{read, remove_file},
+};
 
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::{info, error};
+use sha2::{Digest, Sha256};
+use tracing::{error, info};
 
 use crate::VersionBuild;
 
@@ -67,16 +71,25 @@ pub async fn get_hash(
 pub fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
     // Verifying binary integrity
     info!("Verifying file integrity");
-    let contents = fs::read(file_name).expect("Failed to read downloaded file");
-    let computed_hash = sha256::digest(contents.try_into().unwrap());
-    if &computed_hash == hash {
-        info!("Hashes match, file verified");
-        return Ok(());
-    } else {
-        error!("Hashes do not match, downloaded binary may be corrupted, erasing file.");
-        fs::remove_file(format!("{}", file_name)).expect("Failed to remove file");
-        return Err("Binary failed hash verification".into());
+
+    // Read file
+    let file = read(file_name)?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(&file);
+    let result = hasher.finalize();
+
+    // Compare hashes
+    let file_hash = format!("{:X}", result);
+    if file_hash != *hash {
+        error!("Hashes do not match");
+        remove_file(&file_name).expect("Failed to remove file");
+        return Err("Hashes do not match".into());
     }
+
+    info!("Hashes match");
+
+    Ok(())
 }
 
 // https://api.papermc.io/v2/projects/paper/
