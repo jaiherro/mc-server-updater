@@ -15,7 +15,7 @@ mod variants;
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
-    /// The server variant to download (e.g. paper, purpur, etc.)
+    /// The server variant to download (e.g. paper, purpur)
     #[arg(short, long, default_value = "paper")]
     variant: Option<String>,
 
@@ -58,37 +58,44 @@ async fn main() {
         }
     };
 
-    // If local information exists but is different to the requested variant, warn the user
-    if local_information.variant != args.variant.as_deref().unwrap() {
-        warn!("Local variant is different to requested variant");
-    }
-
     // Match the arguments to determine the scripts logic
     match (args.variant, args.release, args.latest) {
-        // If variant and release are provided, download the requested release
+        // If release is provided, download the requested release
         (Some(variant), Some(release), _) => {
             info!("Downloading requested release");
-            match download_release(&client, &variant, &release, file_name).await {
+            match download_release_wrapper(
+                &client,
+                &variant,
+                &release,
+                &local_information,
+                file_name,
+            )
+            .await
+            {
                 Ok(_) => info!("Downloaded requested release"),
                 Err(error) => error!("Failed to download requested release: {}", error),
             }
         }
 
-        // If variant and latest are provided, download the latest release
+        // If latest is flagged, download the latest release
         (Some(variant), _, true) => {
             info!("Downloading latest release");
-            match download_latest_release(&client, &variant, file_name).await {
+            match download_latest_release_wrapper(&client, &variant, &local_information, file_name)
+                .await
+            {
                 Ok(_) => info!("Downloaded latest release"),
                 Err(error) => error!("Failed to download latest release: {}", error),
             }
         }
 
-        // If variant is provided but no release or latest, download the latest release
+        // If nothing is provided, try to download the latest build of the local release (if it exists) or the latest release (if it doesn't)
         (Some(variant), _, _) => {
             info!("Downloading latest release");
-            match download_latest_release(&client, &variant, file_name).await {
+            match download_intelligently_wrapper(&client, &variant, &local_information, file_name)
+                .await
+            {
                 Ok(_) => info!("Downloaded latest release"),
-                Err(error) => error!("Failed to download latest release: {}", error),
+                Err(error) => error!("Failed to download: {}", error),
             }
         }
 
@@ -102,6 +109,15 @@ async fn main() {
         Ok(_) => info!("File integrity verified"),
         Err(error) => error!("Failed to verify file integrity: {}", error),
     }
+}
+
+fn download_release_wrapper(
+    client: &Client,
+    variant: &String,
+    release: &String,
+    local_information: &VersionBuild,
+    file_name: &str,
+) -> Result<(), Box<dyn Error>> {
 }
 
 fn extract_local_information() -> Result<VersionBuild, String> {

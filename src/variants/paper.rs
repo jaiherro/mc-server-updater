@@ -10,6 +10,14 @@ use tracing::{error, info};
 
 use crate::VersionBuild;
 
+pub fn url(information: &VersionBuild, filename: &String) -> String {
+    // Construct the URL
+    return format!(
+        "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
+        information.release, information.build, filename
+    );
+}
+
 pub async fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let version = client
         .get("https://api.papermc.io/v2/projects/paper/")
@@ -45,6 +53,27 @@ pub async fn get_build(
     // Parse the build number to u16
     let build: u16 = build.parse::<u16>().unwrap();
     Ok(build)
+}
+
+pub async fn get_filename(
+    client: &Client,
+    version: &String,
+    build: &u16,
+) -> Result<String, Box<dyn Error>> {
+    let result = client
+        .get(
+            format!(
+                "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}",
+                version, build
+            )
+            .as_str(),
+        )
+        .send()
+        .await?
+        .json::<Builds>()
+        .await?;
+
+    Ok(result.downloads.application.name)
 }
 
 pub async fn get_hash(

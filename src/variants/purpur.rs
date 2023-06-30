@@ -10,6 +10,14 @@ use tracing::{error, info};
 
 use crate::VersionBuild;
 
+pub fn url(information: &VersionBuild) -> String {
+    // Construct the URL
+    return format!(
+        "https://api.purpurmc.org/v2/purpur/{}/{}/download",
+        information.release, information.build
+    );
+}
+
 pub async fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let version = client
         .get("https://api.purpurmc.org/v2/purpur")
