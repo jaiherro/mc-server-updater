@@ -1,5 +1,5 @@
 use clap::Parser;
-use reqwest::{Client, Response};
+use reqwest::blocking::{Client, Response};
 use serde::Deserialize;
 use std::{
     error::Error,
@@ -28,8 +28,7 @@ struct Args {
     latest: bool,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     // Get arguments
     let args: Args = Args::parse();
 
@@ -43,7 +42,7 @@ async fn main() {
     subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     // Variables
-    let file_name: &str = "server.jar";
+    let binary_name: &str = "server.jar";
 
     // Extract local version and build information from version_history.json
     let local_information: VersionBuild = match extract_local_information() {
@@ -63,15 +62,7 @@ async fn main() {
         // If release is provided, download the requested release
         (Some(variant), Some(release), _) => {
             info!("Downloading requested release");
-            match download_release_wrapper(
-                &client,
-                &variant,
-                &release,
-                &local_information,
-                file_name,
-            )
-            .await
-            {
+            match download_release_wrapper(&client, &variant, &release, binary_name) {
                 Ok(_) => info!("Downloaded requested release"),
                 Err(error) => error!("Failed to download requested release: {}", error),
             }
@@ -80,8 +71,7 @@ async fn main() {
         // If latest is flagged, download the latest release
         (Some(variant), _, true) => {
             info!("Downloading latest release");
-            match download_latest_release_wrapper(&client, &variant, &local_information, file_name)
-                .await
+            match download_latest_release_wrapper(&client, &variant, &local_information, binary_name)
             {
                 Ok(_) => info!("Downloaded latest release"),
                 Err(error) => error!("Failed to download latest release: {}", error),
@@ -90,34 +80,184 @@ async fn main() {
 
         // If nothing is provided, try to download the latest build of the local release (if it exists) or the latest release (if it doesn't)
         (Some(variant), _, _) => {
-            info!("Downloading latest release");
-            match download_intelligently_wrapper(&client, &variant, &local_information, file_name)
-                .await
-            {
-                Ok(_) => info!("Downloaded latest release"),
-                Err(error) => error!("Failed to download: {}", error),
-            }
+            // info!("Downloading latest release");
+            // match download_intelligently_wrapper(&client, &variant, &local_information, file_name) {
+            //     Ok(_) => info!("Downloaded latest release"),
+            //     Err(error) => error!("Failed to download: {}", error),
+            // }
         }
 
         // If no variant is provided, warn the user
         (None, _, _) => warn!("No variant provided"),
     }
-
-    // Verify the integrity of the downloaded file
-    info!("Verifying file integrity");
-    match verify_binary(file_name, &local_information.md5) {
-        Ok(_) => info!("File integrity verified"),
-        Err(error) => error!("Failed to verify file integrity: {}", error),
-    }
 }
+
+// TODO: need to add a check to see if the file already exists
 
 fn download_release_wrapper(
     client: &Client,
     variant: &String,
     release: &String,
-    local_information: &VersionBuild,
-    file_name: &str,
+    binary_name: &str,
 ) -> Result<(), Box<dyn Error>> {
+    // Match the variant
+    match variant.as_str() {
+        "paper" => {
+            // Get build number
+            let build: u16 = match variants::paper::get_build(client, release) {
+                Ok(build) => build,
+                Err(error) => return Err(error),
+            };
+
+            // Get filename
+            let build_filename: String =
+                match variants::paper::get_build_filename(client, release, &build) {
+                    Ok(file_name) => file_name,
+                    Err(error) => return Err(error),
+                };
+
+            // Get hash
+            let build_hash: String = match variants::paper::get_build_hash(client, release, &build)
+            {
+                Ok(build_hash) => build_hash,
+                Err(error) => return Err(error),
+            };
+
+            // Get the download url
+            let download_url: String = variants::paper::url(release, &build, &build_filename);
+
+            // Download the file
+            match download_file(client, &download_url, binary_name) {
+                Ok(_) => {}
+                Err(error) => return Err(error),
+            }
+
+            // Verify the file
+            match variants::paper::verify_binary(binary_name, &build_hash) {
+                Ok(_) => Ok(()),
+                Err(error) => return Err(error),
+            }
+        }
+        "purpur" => {
+            // Get build number
+            let build: u16 = match variants::purpur::get_build(client, release) {
+                Ok(build) => build,
+                Err(error) => return Err(error),
+            };
+
+            // Get hash
+            let build_hash: String = match variants::purpur::get_build_hash(client, release, &build)
+            {
+                Ok(build_hash) => build_hash,
+                Err(error) => return Err(error),
+            };
+
+            // Get the download url
+            let download_url: String = variants::purpur::url(release, &build);
+
+            // Download the file
+            match download_file(client, &download_url, binary_name) {
+                Ok(_) => {}
+                Err(error) => return Err(error),
+            }
+
+            // Verify the file
+            match variants::purpur::verify_binary(binary_name, &build_hash) {
+                Ok(_) => Ok(()),
+                Err(error) => return Err(error),
+            }
+        }
+        _ => Err("Unknown variant".into()),
+    }
+}
+
+fn download_latest_release_wrapper(
+    client: &Client,
+    variant: &String,
+    local_information: &VersionBuild,
+    binary_name: &str,
+) -> Result<(), Box<dyn Error>> {
+    // Match the variant
+    match variant.as_str() {
+        "paper" => {
+            // Get the latest release
+            let release: String = match variants::paper::get_latest_version(client) {
+                Ok(release) => release,
+                Err(error) => return Err(error),
+            };
+
+            // Get build number
+            let build: u16 = match variants::paper::get_build(client, &release) {
+                Ok(build) => build,
+                Err(error) => return Err(error),
+            };
+
+            // Get filename
+            let build_filename: String =
+                match variants::paper::get_build_filename(client, &release, &build) {
+                    Ok(file_name) => file_name,
+                    Err(error) => return Err(error),
+                };
+
+            // Get hash
+            let build_hash: String = match variants::paper::get_build_hash(client, &release, &build)
+            {
+                Ok(build_hash) => build_hash,
+                Err(error) => return Err(error),
+            };
+
+            // Get the download url
+            let download_url: String = variants::paper::url(&release, &build, &build_filename);
+
+            // Download the file
+            match download_file(client, &download_url, binary_name) {
+                Ok(_) => {}
+                Err(error) => return Err(error),
+            }
+
+            // Verify the file
+            match variants::paper::verify_binary(binary_name, &build_hash) {
+                Ok(_) => Ok(()),
+                Err(error) => return Err(error),
+            }
+        }
+        "purpur" => {
+            // Get the latest release
+            let release: String = match variants::purpur::get_latest_version(client) {
+                Ok(release) => release,
+                Err(error) => return Err(error),
+            };
+
+            // Get build number
+            let build: u16 = match variants::purpur::get_build(client, &release) {
+                Ok(build) => build,
+                Err(error) => return Err(error),
+            };
+
+            // Get hash
+            let build_hash: String =
+                match variants::purpur::get_build_hash(client, &release, &build) {
+                    Ok(build_hash) => build_hash,
+                    Err(error) => return Err(error),
+                };
+
+            // Get the download url
+            let download_url: String = variants::purpur::url(&release, &build);
+
+            // Download the file
+            match download_file(client, &download_url, binary_name) {
+                Ok(_) => {}
+                Err(error) => return Err(error),
+            }
+
+            // Verify the file
+            match variants::purpur::verify_binary(binary_name, &build_hash) {
+                Ok(_) => Ok(()),
+                Err(error) => return Err(error),
+            }
+        }
+        _ => Err("Unknown variant".into()),
+    }
 }
 
 fn extract_local_information() -> Result<VersionBuild, String> {
@@ -167,16 +307,11 @@ fn extract_local_information() -> Result<VersionBuild, String> {
     })
 }
 
-async fn download_file(
-    client: &Client,
-    url: &String,
-    file_name: &str,
-) -> Result<(), Box<dyn Error>> {
+fn download_file(client: &Client, url: &String, file_name: &str) -> Result<(), Box<dyn Error>> {
     // Reqwest setup
     let resp: Response = client
         .get(url)
-        .send()
-        .await?
+        .send()?
         .error_for_status()
         .or(Err(format!("Failed to GET from '{}'", &url)))?;
 
@@ -185,7 +320,7 @@ async fn download_file(
         .or(Err(format!("Failed to create file '{}'", file_name)))?;
 
     // write bytes to file
-    let bytes = resp.bytes().await?;
+    let bytes = resp.bytes()?;
 
     file.write_all(&bytes)
         .or(Err(format!("Error while writing to {}", file_name)))?;

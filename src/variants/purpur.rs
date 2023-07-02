@@ -4,42 +4,45 @@ use std::{
 };
 
 use md5::{Digest, Md5};
-use reqwest::Client;
+use reqwest::blocking::Client;
 use serde::Deserialize;
 use tracing::{error, info};
 
-use crate::VersionBuild;
-
-pub fn url(information: &VersionBuild) -> String {
+pub fn url(release: &String, build: &u16) -> String {
     // Construct the URL
     return format!(
         "https://api.purpurmc.org/v2/purpur/{}/{}/download",
-        information.release, information.build
+        release, build
     );
 }
 
-pub async fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub fn get_latest_version(client: &Client) -> Result<String, Box<dyn std::error::Error>> {
     let version = client
         .get("https://api.purpurmc.org/v2/purpur")
-        .send()
-        .await?
-        .json::<Purpur>()
-        .await?
+        .send()?
+        .json::<Purpur>()?
+        .versions
+        .pop()
+        .unwrap();
+
+    Ok(version)
+}
+
+pub fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let version = client
+        .get("https://api.purpurmc.org/v2/purpur")
+        .send()?
+        .json::<Purpur>()?
         .versions;
 
     Ok(version)
 }
 
-pub async fn get_build(
-    client: &Client,
-    version: &String,
-) -> Result<u16, Box<dyn std::error::Error>> {
+pub fn get_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
     let build: String = client
         .get(format!("https://api.purpurmc.org/v2/purpur/{}", version).as_str())
-        .send()
-        .await?
-        .json::<Version>()
-        .await?
+        .send()?
+        .json::<Version>()?
         .builds
         .latest;
 
@@ -48,27 +51,25 @@ pub async fn get_build(
     Ok(build)
 }
 
-pub async fn get_hash(
+pub fn get_build_hash(
     client: &Client,
     version: &String,
     build: &u16,
 ) -> Result<String, Box<dyn Error>> {
     let result = client
         .get(format!("https://api.purpurmc.org/v2/purpur/{}/{}", version, build).as_str())
-        .send()
-        .await?
-        .json::<Build>()
-        .await?;
+        .send()?
+        .json::<Build>()?;
 
     Ok(result.md5.to_uppercase())
 }
 
-pub fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
+pub fn verify_binary(binary_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
     // Verifying binary integrity
     info!("Verifying file integrity");
 
     // Read file
-    let file = read(file_name)?;
+    let file = read(binary_name)?;
 
     let mut hasher = Md5::new();
     hasher.update(&file);
@@ -78,7 +79,7 @@ pub fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error
     let file_hash = format!("{:X}", result);
     if file_hash != *hash {
         error!("Hashes do not match");
-        remove_file(&file_name).expect("Failed to remove file");
+        remove_file(binary_name).expect("Failed to remove file");
         return Err("Hashes do not match".into());
     }
 

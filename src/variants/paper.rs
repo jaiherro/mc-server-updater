@@ -3,37 +3,42 @@ use std::{
     fs::{read, remove_file},
 };
 
-use reqwest::Client;
+use reqwest::blocking::Client;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
-use crate::VersionBuild;
-
-pub fn url(information: &VersionBuild, filename: &String) -> String {
+pub fn url(release: &String, build: &u16, filename: &String) -> String {
     // Construct the URL
     return format!(
         "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
-        information.release, information.build, filename
+        release, build, filename
     );
 }
 
-pub async fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub fn get_latest_version(client: &Client) -> Result<String, Box<dyn std::error::Error>> {
     let version = client
         .get("https://api.papermc.io/v2/projects/paper/")
-        .send()
-        .await?
-        .json::<Paper>()
-        .await?
+        .send()?
+        .json::<Paper>()?
+        .versions
+        .pop()
+        .unwrap();
+
+    Ok(version)
+}
+
+pub fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let version = client
+        .get("https://api.papermc.io/v2/projects/paper/")
+        .send()?
+        .json::<Paper>()?
         .versions;
 
     Ok(version)
 }
 
-pub async fn get_build(
-    client: &Client,
-    version: &String,
-) -> Result<u16, Box<dyn std::error::Error>> {
+pub fn get_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
     let build = client
         .get(
             format!(
@@ -42,10 +47,8 @@ pub async fn get_build(
             )
             .as_str(),
         )
-        .send()
-        .await?
-        .json::<Versions>()
-        .await?
+        .send()?
+        .json::<Versions>()?
         .builds
         .pop()
         .unwrap();
@@ -55,7 +58,7 @@ pub async fn get_build(
     Ok(build)
 }
 
-pub async fn get_filename(
+pub fn get_build_filename(
     client: &Client,
     version: &String,
     build: &u16,
@@ -68,15 +71,13 @@ pub async fn get_filename(
             )
             .as_str(),
         )
-        .send()
-        .await?
-        .json::<Builds>()
-        .await?;
+        .send()?
+        .json::<Builds>()?;
 
     Ok(result.downloads.application.name)
 }
 
-pub async fn get_hash(
+pub fn get_build_hash(
     client: &Client,
     version: &String,
     build: &u16,
@@ -89,20 +90,18 @@ pub async fn get_hash(
             )
             .as_str(),
         )
-        .send()
-        .await?
-        .json::<Builds>()
-        .await?;
+        .send()?
+        .json::<Builds>()?;
 
     Ok(result.downloads.application.sha256.to_uppercase())
 }
 
-pub fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
+pub fn verify_binary(binary_name: &str, hash: &String) -> Result<(), Box<dyn Error>> {
     // Verifying binary integrity
     info!("Verifying file integrity");
 
     // Read file
-    let file = read(file_name)?;
+    let file = read(binary_name)?;
 
     let mut hasher = Sha256::new();
     hasher.update(&file);
@@ -112,7 +111,7 @@ pub fn verify_binary(file_name: &str, hash: &String) -> Result<(), Box<dyn Error
     let file_hash = format!("{:X}", result);
     if file_hash != *hash {
         error!("Hashes do not match");
-        remove_file(&file_name).expect("Failed to remove file");
+        remove_file(binary_name).expect("Failed to remove file");
         return Err("Hashes do not match".into());
     }
 
