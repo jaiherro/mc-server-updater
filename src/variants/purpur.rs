@@ -102,7 +102,7 @@ struct Version {
 #[derive(Deserialize)]
 struct Builds {
     latest: String,
-    all: Vec<String>,
+    // all: Vec<String>,
 }
 
 // https://api.purpurmc.org/v2/purpur/{version}/{build} or https://api.purpurmc.org/v2/purpur/{version}/latest

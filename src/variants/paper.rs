@@ -53,8 +53,6 @@ pub fn get_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::
         .pop()
         .unwrap();
 
-    // Parse the build number to u16
-    let build: u16 = build.parse::<u16>().unwrap();
     Ok(build)
 }
 
@@ -129,7 +127,7 @@ struct Paper {
 // https://api.papermc.io/v2/projects/paper/versions/{version}
 #[derive(Deserialize)]
 struct Versions {
-    builds: Vec<String>,
+    builds: Vec<u16>,
 }
 
 // https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{build}
