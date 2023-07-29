@@ -7,7 +7,7 @@ use std::{
     io::Write,
     path::Path,
 };
-use tracing::{error, info, subscriber, warn, Level};
+use tracing::{error, info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod variants;
@@ -39,7 +39,7 @@ fn main() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
-    subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     // Variables
     let binary_name: &str = "server.jar";
@@ -71,8 +71,12 @@ fn main() {
         // If latest is flagged, download the latest release
         (Some(variant), _, true) => {
             info!("Downloading latest release");
-            match download_latest_release_wrapper(&client, &variant, &local_information, binary_name)
-            {
+            match download_latest_release_wrapper(
+                &client,
+                &variant,
+                &local_information,
+                binary_name,
+            ) {
                 Ok(_) => info!("Downloaded latest release"),
                 Err(error) => error!("Failed to download latest release: {}", error),
             }
