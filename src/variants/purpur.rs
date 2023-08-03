@@ -3,6 +3,7 @@ use std::{
     fs::{read, remove_file},
 };
 
+use anyhow::Result;
 use md5::{Digest, Md5};
 use reqwest::blocking::Client;
 use serde::Deserialize;
@@ -16,7 +17,7 @@ pub fn url(release: &String, build: &u16) -> String {
     );
 }
 
-pub fn get_latest_version(client: &Client) -> Result<String, Box<dyn std::error::Error>> {
+pub fn get_latest_version(client: &Client) -> Result<String> {
     let version = client
         .get("https://api.purpurmc.org/v2/purpur")
         .send()?
@@ -28,7 +29,7 @@ pub fn get_latest_version(client: &Client) -> Result<String, Box<dyn std::error:
     Ok(version)
 }
 
-pub fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub fn get_versions(client: &Client) -> Result<Vec<String>> {
     let version = client
         .get("https://api.purpurmc.org/v2/purpur")
         .send()?
@@ -38,7 +39,7 @@ pub fn get_versions(client: &Client) -> Result<Vec<String>, Box<dyn std::error::
     Ok(version)
 }
 
-pub fn get_build(client: &Client, version: &String) -> Result<u16, Box<dyn std::error::Error>> {
+pub fn get_build(client: &Client, version: &String) -> Result<u16> {
     let build: String = client
         .get(format!("https://api.purpurmc.org/v2/purpur/{}", version).as_str())
         .send()?
