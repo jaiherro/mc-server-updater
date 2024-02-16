@@ -9,11 +9,11 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::{error, info};
 
-pub fn url(release: &String, build: &u16, filename: &String) -> String {
+pub fn url(version: &str, build: &u16, filename: &String) -> String {
     // Construct the URL
     return format!(
         "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
-        release, build, filename
+        version, build, filename
     );
 }
 
@@ -39,7 +39,7 @@ pub fn get_versions(client: &Client) -> Result<Vec<String>> {
     Ok(version)
 }
 
-pub fn get_build(client: &Client, version: &String) -> Result<u16> {
+pub fn get_build(client: &Client, version: &str) -> Result<u16> {
     let build = client
         .get(
             format!(
@@ -59,7 +59,7 @@ pub fn get_build(client: &Client, version: &String) -> Result<u16> {
 
 pub fn get_build_filename(
     client: &Client,
-    version: &String,
+    version: &str,
     build: &u16,
 ) -> Result<String, Box<dyn Error>> {
     let result = client
@@ -78,7 +78,7 @@ pub fn get_build_filename(
 
 pub fn get_build_hash(
     client: &Client,
-    version: &String,
+    version: &str,
     build: &u16,
 ) -> Result<String, Box<dyn Error>> {
     let result = client
