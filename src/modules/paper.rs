@@ -1,6 +1,6 @@
 use std::{
     error::Error,
-    fs::{read, remove_file},
+    fs::{read, remove_file, File}, io::Write,
 };
 
 use anyhow::Result;
@@ -8,6 +8,18 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::{error, info};
+
+pub fn download(client: &Client, url: &String, filename: &String) -> Result<(), Box<dyn Error>> {
+    // Download the file
+    info!("Downloading file from {}", url);
+    let mut response = client.get(url).send()?;
+    let mut file = File::create(filename)?;
+
+    // Write the file
+    std::io::copy(&mut response, &mut file)?;
+
+    Ok(())
+}
 
 pub fn url(version: &str, build: &u16, filename: &String) -> String {
     // Construct the URL

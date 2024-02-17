@@ -1,0 +1,2 @@
+Feed whole script into ChatGPT
+"Here is my updater script written in Rust. I feel there isn't sufficient logging being done. Please put proper "debug!", "info!", "warn!", and "error!" macros wherever you feel they're necessary."

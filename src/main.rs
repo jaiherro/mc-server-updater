@@ -61,17 +61,10 @@ fn setup_logging() {
 }
 
 fn get_local_version_information_or_default() -> VersionInformation {
-    match get_local_version_information() {
-        Ok(info) => info,
-        Err(_) => {
-            warn!("Failed to extract local version and build information, using defaults.");
-            VersionInformation {
-                server_type: String::from("paper"),
-                version: String::from("0.0"),
-                build: 0,
-            }
-        }
-    }
+    get_local_version_information().unwrap_or_else(|e| {
+        warn!("Failed to extract local version and build information, using defaults: {}", e);
+        VersionInformation { server_type: "Paper".to_owned(), ..VersionInformation::default() }
+    })
 }
 
 fn download_specific_version(client: &Client, version: &str, binary_name: &str) {
@@ -81,11 +74,33 @@ fn download_specific_version(client: &Client, version: &str, binary_name: &str) 
     }
 }
 
-fn download_latest_version(client: &Client, local_information: &VersionInformation, binary_name: &str) {
-    match download_latest_version_wrapper(client, local_information, binary_name) {
-        Ok(_) => info!("Successfully downloaded the latest version."),
-        Err(e) => error!("Failed to download the latest version: {}", e),
+fn download_latest_version(client: &Client, local_information: &VersionInformation, binary_name: &str) -> Result<(), Box<dyn Error>> {
+    let version: String = modules::paper::get_latest_version(client)?;
+    
+    let build: u16 = modules::paper::get_build(client, &version)?;
+
+    let remote_information = VersionInformation {
+        server_type: "paper".to_string(),
+        version: version.clone(),
+        build,
+    };
+
+    if compare_versions(local_information, &remote_information ) {
+        info!("Latest version already downloaded");
+        return Ok(());
     }
+
+    let build_filename: String = modules::paper::get_build_filename(client, &version, &build)?;
+
+    let build_hash: String = modules::paper::get_build_hash(client, &version, &build)?;
+
+    let download_url: String = modules::paper::url(&version, &build, &build_filename);
+
+    download_file(client, &download_url, binary_name)?;
+
+    modules::paper::verify_binary(binary_name, &build_hash)?;
+
+    Ok(())
 }
 
 fn download_based_on_local_information(client: &Client, local_information: &VersionInformation, binary_name: &str) {
@@ -109,44 +124,6 @@ fn paper_logic(client: &Client, version: &str, binary_name: &str) -> Result<(), 
 
     // Verify the file and directly return the result
     modules::paper::verify_binary(binary_name, &build_hash)
-}
-
-fn download_latest_version_wrapper(
-    client: &Client,
-    local_information: &VersionInformation,
-    binary_name: &str,
-) -> Result<(), Box<dyn Error>> {
-    // Get the latest version
-    let version: String = modules::paper::get_latest_version(client)?;
-
-    // Get build number
-    let build: u16 = modules::paper::get_build(client, &version)?;
-
-    if compare_versions(local_information, &VersionInformation {
-        server_type: String::from("paper"),
-        version: version.clone(),
-        build,
-    }) {
-        info!("Latest version already downloaded");
-        return Ok(());
-    }
-
-    // Get filename
-    let build_filename: String = modules::paper::get_build_filename(client, &version, &build)?;
-
-    // Get hash
-    let build_hash: String = modules::paper::get_build_hash(client, &version, &build)?;
-
-    // Get the download url
-    let download_url: String = modules::paper::url(&version, &build, &build_filename);
-
-    // Download the file
-    download_file(client, &download_url, binary_name)?;
-
-    // Verify the file
-    modules::paper::verify_binary(binary_name, &build_hash)?;
-
-    Ok(())
 }
 
 fn compare_versions(local_version: &VersionInformation, remote_version: &VersionInformation) -> bool {
@@ -199,29 +176,8 @@ fn get_local_version_information() -> Result<VersionInformation, Box<dyn Error>>
     })
 }
 
-fn download_file(client: &Client, url: &String, file_name: &str) -> Result<(), Box<dyn Error>> {
-    // Reqwest setup
-    let resp: Response = client
-        .get(url)
-        .send()?
-        .error_for_status()
-        .or(Err(format!("Failed to GET from '{}'", &url)))?;
-
-    // create file
-    let mut file = File::create(format!("{}", file_name))
-        .or(Err(format!("Failed to create file '{}'", file_name)))?;
-
-    // write bytes to file
-    let bytes = resp.bytes()?;
-
-    file.write_all(&bytes)
-        .or(Err(format!("Error while writing to {}", file_name)))?;
-
-    Ok(())
-}
-
 // Standard struct
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Default)]
 struct VersionInformation {
     server_type: String,
     version: String,
