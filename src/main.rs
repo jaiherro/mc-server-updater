@@ -1,17 +1,17 @@
 use anyhow::Result;
 use clap::Parser;
-use reqwest::blocking::{Client, Response};
+use modules::paper::download_handler;
+use regex::Regex;
+use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
     error::Error,
-    fs::{self, File},
-    io::Write,
+    fs::{self},
     path::Path,
 };
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
-use regex::Regex;
 
 mod modules;
 
@@ -43,13 +43,19 @@ fn main() {
     // Determine action based on arguments
     if let Some(version) = args.version {
         info!("Downloading requested version: {}", version);
-        download_specific_version(&client, &version, "server.jar");
-    } else if args.latest {
+        if let Err(e) = download_specific_version(&client, &local_information, &version) {
+            error!("Failed to download specific version: {}", e);
+        }
+    } else if args.latest || local_information.version.is_empty() {
         info!("Downloading the latest version.");
-        download_latest_version(&client, &local_information, "server.jar");
+        if let Err(e) = download_latest_version(&client, &local_information) {
+            error!("Failed to download latest version: {}", e);
+        }
     } else {
-        info!("Determining appropriate action...");
-        download_based_on_local_information(&client, &local_information, "server.jar");
+        info!("Downloading the latest build of the current version.");
+        if let Err(e) = download_specific_version(&client, &local_information, local_information.version.as_str()) {
+            error!("Failed to download latest build: {}", e);
+        }
     }
 }
 
@@ -62,71 +68,68 @@ fn setup_logging() {
 
 fn get_local_version_information_or_default() -> VersionInformation {
     get_local_version_information().unwrap_or_else(|e| {
-        warn!("Failed to extract local version and build information, using defaults: {}", e);
-        VersionInformation { server_type: "Paper".to_owned(), ..VersionInformation::default() }
+        warn!(
+            "Failed to extract local version and build information, using defaults: {}",
+            e
+        );
+        VersionInformation {
+            server_type: "Paper".to_owned(),
+            ..VersionInformation::default()
+        }
     })
 }
 
-fn download_specific_version(client: &Client, version: &str, binary_name: &str) {
-    match paper_logic(client, version, binary_name) {
-        Ok(_) => info!("Successfully downloaded version: {}", version),
-        Err(e) => error!("Failed to download requested version: {}", e),
-    }
-}
-
-fn download_latest_version(client: &Client, local_information: &VersionInformation, binary_name: &str) -> Result<(), Box<dyn Error>> {
-    let version: String = modules::paper::get_latest_version(client)?;
-    
-    let build: u16 = modules::paper::get_build(client, &version)?;
+fn download_specific_version(
+    client: &Client,
+    local_information: &VersionInformation,
+    version: &str,
+) -> Result<(), Box<dyn Error>> {
+    let build: u16 = modules::paper::get_build(client, version).unwrap();
 
     let remote_information = VersionInformation {
-        server_type: "paper".to_string(),
-        version: version.clone(),
+        server_type: "Paper".to_string(),
+        version: version.to_string(),
         build,
     };
 
-    if compare_versions(local_information, &remote_information ) {
+    if compare_versions(local_information, &remote_information) {
         info!("Latest version already downloaded");
         return Ok(());
     }
 
-    let build_filename: String = modules::paper::get_build_filename(client, &version, &build)?;
-
-    let build_hash: String = modules::paper::get_build_hash(client, &version, &build)?;
-
-    let download_url: String = modules::paper::url(&version, &build, &build_filename);
-
-    download_file(client, &download_url, binary_name)?;
-
-    modules::paper::verify_binary(binary_name, &build_hash)?;
+    download_handler(client, &version.to_string(), &build)?;
 
     Ok(())
 }
 
-fn download_based_on_local_information(client: &Client, local_information: &VersionInformation, binary_name: &str) {
-    // Example placeholder for logic to intelligently download based on local information
-    // This is where you'd implement the commented-out logic, adjusted as necessary.
-    info!("Placeholder for intelligent download logic based on local information.");
+fn download_latest_version(
+    client: &Client,
+    local_information: &VersionInformation,
+) -> Result<(), Box<dyn Error>> {
+    let version: String = modules::paper::get_latest_version(client)?;
+
+    let build: u16 = modules::paper::get_build(client, &version)?;
+
+    let remote_information = VersionInformation {
+        server_type: "Paper".to_string(),
+        version: version.clone(),
+        build,
+    };
+
+    if compare_versions(local_information, &remote_information) {
+        info!("Latest version already downloaded");
+        return Ok(());
+    }
+
+    download_handler(client, &version, &build)?;
+
+    Ok(())
 }
 
-// TODO: need to add a check to see if the file already exists
-
-fn paper_logic(client: &Client, version: &str, binary_name: &str) -> Result<(), Box<dyn Error>> {
-    let build = &modules::paper::get_build(client, version)?;
-
-    let build_filename = modules::paper::get_build_filename(client, version, build)?;
-
-    let build_hash = modules::paper::get_build_hash(client, version, build)?;
-
-    let download_url = modules::paper::url(version, build, &build_filename);
-
-    download_file(client, &download_url, binary_name)?;
-
-    // Verify the file and directly return the result
-    modules::paper::verify_binary(binary_name, &build_hash)
-}
-
-fn compare_versions(local_version: &VersionInformation, remote_version: &VersionInformation) -> bool {
+fn compare_versions(
+    local_version: &VersionInformation,
+    remote_version: &VersionInformation,
+) -> bool {
     if local_version.server_type != remote_version.server_type {
         return false;
     }
@@ -160,14 +163,30 @@ fn get_local_version_information() -> Result<VersionInformation, Box<dyn Error>>
         .ok_or_else(|| "Failed to parse current version")?;
 
     let re = Regex::new(r"git-(\w+)-(\d+) \(MC: ([\d.]+)\)")?;
-    let caps = re.captures(current_version)
+    let caps = re
+        .captures(current_version)
         .ok_or_else(|| "Failed to match version pattern")?;
 
-    let server_type = caps.get(1).ok_or_else(|| "Failed to extract server type")?.as_str().to_string();
-    let build = caps.get(2).ok_or_else(|| "Failed to extract build")?.as_str().parse::<u16>()?;
-    let version = caps.get(3).ok_or_else(|| "Failed to extract version")?.as_str().to_string();
+    let server_type = caps
+        .get(1)
+        .ok_or_else(|| "Failed to extract server type")?
+        .as_str()
+        .to_string();
+    let build = caps
+        .get(2)
+        .ok_or_else(|| "Failed to extract build")?
+        .as_str()
+        .parse::<u16>()?;
+    let version = caps
+        .get(3)
+        .ok_or_else(|| "Failed to extract version")?
+        .as_str()
+        .to_string();
 
-    info!("Information found: [{}, {}, {}]", server_type, version, build);
+    info!(
+        "Information found: [{}, {}, {}]",
+        server_type, version, build
+    );
 
     Ok(VersionInformation {
         server_type,
@@ -178,7 +197,7 @@ fn get_local_version_information() -> Result<VersionInformation, Box<dyn Error>>
 
 // Standard struct
 #[derive(Deserialize, Debug, Default)]
-struct VersionInformation {
+pub struct VersionInformation {
     server_type: String,
     version: String,
     build: u16,
