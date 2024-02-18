@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use modules::paper::download_handler;
 use regex::Regex;
@@ -6,7 +6,6 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    error::Error,
     fs::{self},
     path::Path,
 };
@@ -53,10 +52,17 @@ fn main() {
         }
     } else {
         info!("Downloading the latest build of the current version.");
-        if let Err(e) = download_specific_version(&client, &local_information, local_information.version.as_str()) {
+        if let Err(e) = download_specific_version(
+            &client,
+            &local_information,
+            local_information.version.as_str(),
+        ) {
             error!("Failed to download latest build: {}", e);
         }
     }
+
+    // Everything finished successfully
+    info!("All operations completed successfully, server is up to date.");
 }
 
 fn setup_logging() {
@@ -83,8 +89,9 @@ fn download_specific_version(
     client: &Client,
     local_information: &VersionInformation,
     version: &str,
-) -> Result<(), Box<dyn Error>> {
-    let build: u16 = modules::paper::get_build(client, version).unwrap();
+) -> Result<()> {
+    let build = modules::paper::get_build(client, version)
+        .with_context(|| format!("Failed to get build for version {}", version))?;
 
     let remote_information = VersionInformation {
         server_type: "Paper".to_string(),
@@ -97,18 +104,22 @@ fn download_specific_version(
         return Ok(());
     }
 
-    download_handler(client, &version.to_string(), &build)?;
+    download_handler(client, &version.to_string(), &build).with_context(|| {
+        format!(
+            "Failed to download version {} with build {}",
+            version, build
+        )
+    })?;
 
     Ok(())
 }
 
-fn download_latest_version(
-    client: &Client,
-    local_information: &VersionInformation,
-) -> Result<(), Box<dyn Error>> {
-    let version: String = modules::paper::get_latest_version(client)?;
+fn download_latest_version(client: &Client, local_information: &VersionInformation) -> Result<()> {
+    let version =
+        modules::paper::get_latest_version(client).context("Failed to get the latest version")?;
 
-    let build: u16 = modules::paper::get_build(client, &version)?;
+    let build = modules::paper::get_build(client, &version)
+        .context(format!("Failed to get the build for version {}", version))?;
 
     let remote_information = VersionInformation {
         server_type: "Paper".to_string(),
@@ -121,7 +132,7 @@ fn download_latest_version(
         return Ok(());
     }
 
-    download_handler(client, &version, &build)?;
+    download_handler(client, &version, &build).context("Failed to download the latest version")?;
 
     Ok(())
 }
@@ -145,41 +156,44 @@ fn compare_versions(
     true
 }
 
-fn get_local_version_information() -> Result<VersionInformation, Box<dyn Error>> {
+fn get_local_version_information() -> Result<VersionInformation> {
     info!("Checking for existing local version information");
 
-    if !Path::new("version_history.json").exists() {
-        return Err("Failed to find version history".into());
+    let path = Path::new("version_history.json");
+    if !path.exists() {
+        bail!("Failed to find version history");
     }
 
     info!("Reading version_history.json");
-    let version_history_contents = fs::read_to_string("version_history.json")?;
+    let version_history_contents =
+        fs::read_to_string(path).context("Failed to read version_history.json")?;
 
     info!("Parsing version_history.json as JSON");
-    let version_history_json: Value = serde_json::from_str(&version_history_contents)?;
+    let version_history_json: Value = serde_json::from_str(&version_history_contents)
+        .context("Failed to parse version_history.json as JSON")?;
 
     let current_version = version_history_json["currentVersion"]
         .as_str()
-        .ok_or_else(|| "Failed to parse current version")?;
+        .ok_or_else(|| anyhow!("Failed to parse current version"))?;
 
     let re = Regex::new(r"git-(\w+)-(\d+) \(MC: ([\d.]+)\)")?;
     let caps = re
         .captures(current_version)
-        .ok_or_else(|| "Failed to match version pattern")?;
+        .ok_or_else(|| anyhow!("Failed to match version pattern"))?;
 
     let server_type = caps
         .get(1)
-        .ok_or_else(|| "Failed to extract server type")?
+        .ok_or_else(|| anyhow!("Failed to extract server type"))?
         .as_str()
         .to_string();
     let build = caps
         .get(2)
-        .ok_or_else(|| "Failed to extract build")?
+        .ok_or_else(|| anyhow!("Failed to extract build"))?
         .as_str()
         .parse::<u16>()?;
     let version = caps
         .get(3)
-        .ok_or_else(|| "Failed to extract version")?
+        .ok_or_else(|| anyhow!("Failed to extract version"))?
         .as_str()
         .to_string();
 
