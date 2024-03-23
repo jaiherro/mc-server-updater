@@ -15,6 +15,7 @@ MC Server Updater is a command-line tool written in Rust that automates the proc
 2. Download the latest release binary for your operating system.
 3. Place the downloaded binary in the root directory of your Minecraft server.
 4. Ensure that the binary has executable permissions. On Unix-based systems, you can use the following command:
+    
    ```
    chmod +x updater
    ```
@@ -50,8 +51,6 @@ To automatically update your Minecraft server to the latest version every time y
 # Start the Minecraft server
 java -Xmx2G -jar server.jar nogui
 ```
-
-In this example, the `updater` binary is executed before starting the Minecraft server. This ensures that the server is always updated to the latest version before it is launched.
 
 ## Building from Source
 
