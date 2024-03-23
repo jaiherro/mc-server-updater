@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use regex::Regex;
 use reqwest::blocking::Client;
 use serde_json::Value;
 use tracing::{info, warn, Level};
