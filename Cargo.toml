@@ -22,7 +22,6 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 clap = { version = "4.5.0", features = ["derive"] }
 sha2 = "0.10.8"
-md-5 = "0.10.6"
 thiserror = "1.0.57"
 anyhow = "1.0.79"
 regex = "1.10.3"

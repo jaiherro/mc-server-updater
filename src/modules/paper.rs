@@ -1,45 +1,58 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde::Deserialize;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{fs::{read, remove_file, File}, io::copy};
+use std::fs::{self, read, remove_file, File};
+use std::io::copy;
+use std::path::Path;
 use tracing::{error, info};
 
-pub fn download_handler(client: &Client, version: &String, build: &u16) -> Result<()> {
-    info!(
-        "Starting download for version {} with build {}",
-        version, build
-    );
+pub fn download_handler(client: &Client, version: &str) -> Result<()> {
+    info!("Getting build information for version: {}", version);
+    let build = get_build(client, version).context(format!("Failed to get build for version {}", version))?;
 
-    let local_filename = "server.jar".to_string();
+    info!("Getting download URL...");
+    let filename = get_build_filename(client, version, &build).context("Failed to get build filename")?;
+    let url = url(version, &build, &filename);
 
-    let filename =
-        get_build_filename(client, version, build).context("Failed to get the build filename")?;
+    info!("Getting remote hash...");
+    let remote_hash = get_build_hash(client, version, &build).context("Failed to get remote hash")?;
 
-    let remote_hash =
-        get_build_hash(client, version, build).context("Failed to get the build hash")?;
+    info!("Downloading server jar...");
+    let local_filename = "server.jar";
+    download_file(client, &url, local_filename).context("Failed to download server jar")?;
 
-    download_file(client, &url(version, build, &filename), &local_filename)
-        .context("Failed to download the file")?;
-
-    verify_binary(&local_filename, &remote_hash).context("Failed to verify the binary")?;
+    info!("Verifying downloaded file...");
+    verify_binary(local_filename, &remote_hash).context("Failed to verify downloaded file")?;
 
     Ok(())
 }
 
-pub fn download_file(client: &Client, url: &str, filename: &str) -> Result<()> {
-    info!("Downloading file from {}", url);
-    let mut response = client.get(url)
+pub fn get_latest_version(client: &Client) -> Result<String> {
+    let project: Project = client
+        .get("https://api.papermc.io/v2/projects/paper")
         .send()
-        .with_context(|| format!("Failed to send GET request to {}", url))?;
+        .context("Failed to get latest version")?
+        .json()
+        .context("Failed to parse latest version response")?;
 
-    let mut file = File::create(filename)
-        .with_context(|| format!("Failed to create file {}", filename))?;
+    let latest_version = project.versions.last().context("No versions found")?;
 
-    copy(&mut response, &mut file)
-        .with_context(|| format!("Failed to write to file {}", filename))?;
+    Ok(latest_version.to_string())
+}
 
-    Ok(())
+pub fn get_local_version_information() -> Result<Value> {
+    let path = Path::new("version_history.json");
+    if !path.exists() {
+        return Ok(Value::default());
+    }
+
+    let contents = fs::read_to_string(path).context("Failed to read version history")?;
+    let version_history: Value =
+        serde_json::from_str(&contents).context("Failed to parse version history")?;
+
+    Ok(version_history)
 }
 
 pub fn url(version: &str, build: &u16, filename: &str) -> String {
@@ -49,112 +62,74 @@ pub fn url(version: &str, build: &u16, filename: &str) -> String {
     )
 }
 
-pub fn get_latest_version(client: &Client) -> Result<String> {
-    let version = client
-        .get("https://api.papermc.io/v2/projects/paper/")
-        .send()
-        .with_context(|| "Failed to send GET request to PaperMC API")?
-        .json::<Paper>()
-        .with_context(|| "Failed to deserialize JSON response from PaperMC API")?
-        .versions
-        .pop()
-        .ok_or_else(|| anyhow!("No versions found in PaperMC API response"));
-
-    version
-}
-
-pub fn get_versions(client: &Client) -> Result<Vec<String>> {
-    let versions = client
-        .get("https://api.papermc.io/v2/projects/paper/")
-        .send()
-        .with_context(|| "Failed to send GET request to PaperMC API")?
-        .json::<Paper>()
-        .with_context(|| "Failed to deserialize JSON response from PaperMC API")?
-        .versions;
-
-    Ok(versions)
-}
-
 pub fn get_build(client: &Client, version: &str) -> Result<u16> {
-    let build = client
+    let version_info: Version = client
         .get(format!("https://api.papermc.io/v2/projects/paper/versions/{}", version))
         .send()
-        .with_context(|| format!("Failed to send GET request for version {}", version))?
-        .json::<Versions>()
-        .with_context(|| format!("Failed to deserialize JSON response for version {}", version))?
-        .builds
-        .pop()
-        .ok_or_else(|| anyhow!("No build numbers found for version {}", version))?;
+        .with_context(|| format!("Failed to get build for version {}", version))?
+        .json()
+        .with_context(|| format!("Failed to parse build for version {}", version))?;
 
-    Ok(build)
+    Ok(version_info.builds.into_iter().max().unwrap_or(0))
 }
 
-pub fn get_build_filename(client: &Client, version: &str, build: &u16) -> Result<String> {
-    let result = client
+fn get_build_filename(client: &Client, version: &str, build: &u16) -> Result<String> {
+    let build_info: Build = client
         .get(format!("https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}", version, build))
         .send()
-        .with_context(|| format!("Failed to send GET request for version {} build {}", version, build))?
-        .json::<Builds>()
-        .with_context(|| format!("Failed to deserialize JSON response for version {} build {}", version, build))?;
+        .with_context(|| format!("Failed to get download URL for version {} build {}", version, build))?
+        .json()
+        .with_context(|| format!("Failed to parse download URL for version {} build {}", version, build))?;
 
-    Ok(result.downloads.application.name)
+    Ok(build_info.downloads.application.name)
 }
 
-
-pub fn get_build_hash(client: &Client, version: &str, build: &u16) -> Result<String> {
-    let result = client
+fn get_build_hash(client: &Client, version: &str, build: &u16) -> Result<String> {
+    let build_info: Build = client
         .get(format!("https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}", version, build))
         .send()
-        .with_context(|| format!("Failed to send GET request for version {} build {}", version, build))?
-        .json::<Builds>()
-        .with_context(|| format!("Failed to deserialize JSON response for version {} build {}", version, build))?;
+        .with_context(|| format!("Failed to get hash for version {} build {}", version, build))?
+        .json()
+        .with_context(|| format!("Failed to parse hash for version {} build {}", version, build))?;
 
-    Ok(result.downloads.application.sha256.to_uppercase())
+    Ok(build_info.downloads.application.sha256.to_uppercase())
 }
 
-pub fn verify_binary(filename: &str, remote_hash: &String) -> Result<()> {
-    info!("Verifying integrity of file \"{}\"...", filename);
-
-    // Read file
-    let file = read(filename).context(format!("Failed to read file {}", filename))?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&file);
-    let result = hasher.finalize();
-
-    // Compare hashes
-    let local_hash = format!("{:X}", result);
-    if local_hash != *remote_hash {
-        error!("Hashes do not match! Erasing downloaded file...");
-        remove_file(filename).context(format!("Failed to remove file {}", filename))?;
-        bail!(
-            "Hash mismatch for file {}: expected {}, got {}",
-            filename,
-            remote_hash,
-            local_hash
-        );
-    }
-
-    info!("Hashes match! File is authentic.");
-
+fn download_file(client: &Client, url: &str, filename: &str) -> Result<()> {
+    let mut response = client.get(url).send().context(format!("Failed to download from {}", url))?;
+    let mut file = File::create(filename).context(format!("Failed to create file {}", filename))?;
+    copy(&mut response, &mut file).context(format!("Failed to write to file {}", filename))?;
     Ok(())
 }
 
-// https://api.papermc.io/v2/projects/paper/
+fn verify_binary(filename: &str, remote_hash: &str) -> Result<()> {
+    let contents = read(filename).context(format!("Failed to read file {}", filename))?;
+    let mut hasher = Sha256::new();
+    hasher.update(&contents);
+    let local_hash = format!("{:X}", hasher.finalize());
+
+    if local_hash != remote_hash {
+        error!("Hash mismatch for {}: expected {}, got {}", filename, remote_hash, local_hash);
+        remove_file(filename).context(format!("Failed to remove file {}", filename))?;
+        return Err(anyhow::anyhow!("Hash verification failed for {}", filename));
+    }
+
+    info!("Hash verified for {}", filename);
+    Ok(())
+}
+
 #[derive(Deserialize)]
-struct Paper {
+struct Project {
     versions: Vec<String>,
 }
 
-// https://api.papermc.io/v2/projects/paper/versions/{version}
 #[derive(Deserialize)]
-struct Versions {
+struct Version {
     builds: Vec<u16>,
 }
 
-// https://api.papermc.io/v2/projects/paper/versions/{version}/builds/{build}
 #[derive(Deserialize)]
-struct Builds {
+struct Build {
     downloads: Downloads,
 }
 
