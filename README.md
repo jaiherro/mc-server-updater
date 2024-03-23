@@ -7,7 +7,6 @@ MC Server Updater is a command-line tool written in Rust that automates the proc
 - Automatically checks for the latest version of Paper and downloads the server JAR file
 - Verifies the integrity of the downloaded file using SHA256 hash comparison
 - Supports specifying a specific Minecraft version to download
-- Stores version history locally for easy tracking of updates
 - Fast, efficient, and reliable updating process
 
 ## Installation
@@ -53,8 +52,6 @@ java -Xmx2G -jar server.jar nogui
 ```
 
 In this example, the `updater` binary is executed before starting the Minecraft server. This ensures that the server is always updated to the latest version before it is launched.
-
-Make sure to adjust the startup script according to your server's specific requirements, such as the amount of memory allocated (`-Xmx` flag) and any additional Java options.
 
 ## Building from Source
 
