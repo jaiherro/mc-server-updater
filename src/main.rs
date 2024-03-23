@@ -41,20 +41,22 @@ fn main() -> Result<()> {
 
     if let Some(current_version) = local_information.get("currentVersion") {
         if let Some(current_version_str) = current_version.as_str() {
-            let re = Regex::new(r"git-(\w+)-(\d+) \(MC: ([\d.]+)\)")?;
-            if let Some(caps) = re.captures(current_version_str) {
-                let local_version = caps.get(3).map_or("", |m| m.as_str());
-                let local_build = caps.get(2).map_or(0, |m| m.as_str().parse().unwrap_or(0));
-
-                if local_version == version {
+            if let Some((local_mc_version, local_build)) = parse_version(current_version_str) {
+                if local_mc_version == version {
                     let remote_build = get_build(&client, &version)?;
                     if local_build >= remote_build {
-                        info!("Latest version and build are already downloaded.");
+                        info!("The server is already up to date with version {} build {}.", version, local_build);
                         return Ok(());
+                    } else {
+                        info!("An update is available for version {}. Local build: {}, Remote build: {}", version, local_build, remote_build);
                     }
+                } else {
+                    info!("A new Minecraft version is available. Local version: {}, Remote version: {}", local_mc_version, version);
                 }
             }
         }
+    } else {
+        info!("No existing version found.");
     }
 
     info!("Downloading version: {}", version);
@@ -69,4 +71,15 @@ fn setup_logging() {
         .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("Setting default subscriber failed");
+}
+
+fn parse_version(version: &str) -> Option<(&str, u16)> {
+    let parts: Vec<&str> = version.split(" ").collect();
+    if parts.len() == 3 {
+        let build = parts[0].split("-").last()?.parse().ok()?;
+        let mc_version = parts[2].trim_end_matches(')');
+        Some((mc_version, build))
+    } else {
+        None
+    }
 }
