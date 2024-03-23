@@ -7,6 +7,7 @@ MC Server Updater is a command-line tool written in Rust that automates the proc
 - Automatically checks for the latest version of Paper and downloads the server JAR file
 - Verifies the integrity of the downloaded file using SHA256 hash comparison
 - Supports specifying a specific Minecraft version to download
+- Stores version history locally for easy tracking of updates
 - Fast, efficient, and reliable updating process
 
 ## Installation
@@ -16,15 +17,15 @@ MC Server Updater is a command-line tool written in Rust that automates the proc
 3. Place the downloaded binary in the root directory of your Minecraft server.
 4. Ensure that the binary has executable permissions. On Unix-based systems, you can use the following command:
    ```
-   chmod +x mc-server-updater
+   chmod +x updater
    ```
 
 ## Usage
 
-To update your Minecraft server to the latest version of Paper, navigate to your server's root directory and run the `mc-server-updater` binary:
+To update your Minecraft server to the latest version of Paper, navigate to your server's root directory and run the `updater` binary:
 
 ```
-./mc-server-updater
+./updater
 ```
 
 By default, the tool will check for the latest version and download the corresponding server JAR file.
@@ -32,14 +33,28 @@ By default, the tool will check for the latest version and download the correspo
 If you want to update to a specific Minecraft version, you can use the `--version` or `-v` flag followed by the desired version number:
 
 ```
-./mc-server-updater --version 1.20
+./updater --version 1.20
 ```
 
 The updated `server.jar` file will be downloaded to the current directory, overwriting any existing file with the same name.
 
-## Configuration
+### Automatic Updating on Server Startup
 
-The MC Server Updater does not require any additional configuration files. However, it does store version history information in a `version_history.json` file located in the same directory as the binary. This file is automatically created and updated by the tool.
+To automatically update your Minecraft server to the latest version every time you start it, you can include the MC Server Updater in your server's startup script. Here's an example of how you can modify your startup script:
+
+```bash
+#!/bin/bash
+
+# Run MC Server Updater
+./updater
+
+# Start the Minecraft server
+java -Xmx2G -jar server.jar nogui
+```
+
+In this example, the `updater` binary is executed before starting the Minecraft server. This ensures that the server is always updated to the latest version before it is launched.
+
+Make sure to adjust the startup script according to your server's specific requirements, such as the amount of memory allocated (`-Xmx` flag) and any additional Java options.
 
 ## Building from Source
 
@@ -59,29 +74,6 @@ If you prefer to build the MC Server Updater from source, follow these steps:
    cargo build --release
    ```
    The compiled binary will be located in the `target/release` directory.
-
-## Contribution Guidelines
-
-Contributions to the MC Server Updater project are welcome! If you would like to contribute, please follow these steps:
-
-1. Fork the repository on GitHub.
-2. Create a new branch with a descriptive name for your feature or bug fix.
-3. Make your changes, following the code style and conventions used in the project.
-4. Write tests for your changes and ensure all existing tests pass.
-5. Commit your changes and push them to your forked repository.
-6. Submit a pull request to the main repository, describing your changes in detail.
-
-Please ensure that your contributions align with the project's scope and objectives.
-
-## Testing
-
-The project includes unit tests to ensure the correctness and reliability of the code. To run the tests, use the following command:
-
-```
-cargo test
-```
-
-Make sure all tests pass before submitting a pull request.
 
 ## License
 
