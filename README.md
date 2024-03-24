@@ -1,6 +1,6 @@
 # MC Server Updater
 
-MC Server Updater is a command-line tool written in Rust that automates the process of updating Minecraft servers to the latest version of the server software.
+MC Server Updater is a command-line tool written in Rust that automates the process of updating Minecraft servers to the latest version.
 
 ## Features
 
