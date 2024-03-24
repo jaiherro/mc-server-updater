@@ -58,18 +58,18 @@ If you prefer to build the MC Server Updater from source, follow these steps:
 
 1. Ensure you have Rust installed on your system. If not, follow the official installation guide at https://www.rust-lang.org/tools/install.
 2. Clone the repository:
-   ```
-   git clone https://github.com/jaiherro/mc-server-updater.git
-   ```
+```
+git clone https://github.com/jaiherro/mc-server-updater.git
+```
 3. Navigate to the project directory:
-   ```
-   cd mc-server-updater
-   ```
+```
+cd mc-server-updater
+```
 4. Build the project:
-   ```
-   cargo build --release
-   ```
-   The compiled binary will be located in the `target/release` directory.
+```
+cargo build --release
+```
+The compiled binary will be located in the `target/release` directory.
 
 ## License
 
