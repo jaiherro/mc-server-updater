@@ -16,9 +16,9 @@ MC Server Updater is a command-line tool written in Rust that automates the proc
 3. Place the downloaded binary in the root directory of your Minecraft server.
 4. Ensure that the binary has executable permissions. On Unix-based systems, you can use the following command:
     
-   ```
-   chmod +x updater
-   ```
+```
+chmod +x updater
+```
 
 ## Usage
 
