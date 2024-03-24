@@ -44,7 +44,10 @@ fn main() -> Result<()> {
                 if local_mc_version == version {
                     let remote_build = get_build(&client, &version)?;
                     if local_build >= remote_build {
-                        info!("The server is already up to date with version {} build {}.", version, local_build);
+                        info!(
+                            "The server is already up to date with version {} build {}.",
+                            version, local_build
+                        );
                         return Ok(());
                     } else {
                         info!("An update is available for version {}. Local build: {}, Remote build: {}", version, local_build, remote_build);
@@ -59,7 +62,8 @@ fn main() -> Result<()> {
     }
 
     info!("Downloading version: {}", version);
-    download_handler(&client, &version).context(format!("Failed to download version {}", version))?;
+    download_handler(&client, &version)
+        .context(format!("Failed to download version {}", version))?;
 
     info!("Server is now up to date with version: {}", version);
     Ok(())
