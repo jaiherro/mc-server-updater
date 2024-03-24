@@ -1,6 +1,6 @@
 # MC Server Updater
 
-MC Server Updater is a command-line tool written in Rust that automates the process of updating Minecraft servers to the latest version of the Paper server software.
+MC Server Updater is a command-line tool written in Rust that automates the process of updating Minecraft servers to the latest version of the server software.
 
 ## Features
 
@@ -56,8 +56,8 @@ java -Xmx2G -jar server.jar nogui
 
 Ensure you have Rust installed on your system. If not, follow the official installation guide at https://www.rust-lang.org/tools/install.
 ```
-git clone https://github.com/jaiherro/mc-server-updater.git
-cd mc-server-updater
+git clone https://github.com/jaiherro/mc-server-updater.git && \
+cd mc-server-updater && \
 cargo build --release
 ```
 The compiled binary will be located in the `target/release` directory.
@@ -65,17 +65,3 @@ The compiled binary will be located in the `target/release` directory.
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-
-## Acknowledgements
-
-The MC Server Updater project relies on the following dependencies:
-
-- [reqwest](https://crates.io/crates/reqwest) - A simple and powerful Rust HTTP client
-- [serde](https://crates.io/crates/serde) - A generic serialization/deserialization framework
-- [serde_json](https://crates.io/crates/serde_json) - A JSON serialization file format
-- [clap](https://crates.io/crates/clap) - A simple to use, efficient, and full-featured command line argument parser
-- [sha2](https://crates.io/crates/sha2) - SHA-2 hash functions
-- [tracing](https://crates.io/crates/tracing) - Application-level tracing for Rust
-- [anyhow](https://crates.io/crates/anyhow) - Flexible concrete Error type built on std::error::Error
-
-Special thanks to the developers and maintainers of these libraries for their valuable contributions to the Rust ecosystem.
