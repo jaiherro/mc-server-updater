@@ -54,13 +54,41 @@ java -Xmx2G -jar server.jar nogui
 
 ## Building from Source
 
-Ensure you have Rust installed on your system. If not, follow the official installation guide at https://www.rust-lang.org/tools/install.
+1. Ensure you have Rust installed on your system. If not, [install Rust](https://www.rust-lang.org/tools/install).
+2. Clone the repository and navigate to the project directory:
 ```
-git clone https://github.com/jaiherro/mc-server-updater.git && \
-cd mc-server-updater && \
+git clone https://github.com/jaiherro/mc-server-updater.git
+cd mc-server-updater
+```
+1. Build the project using Cargo:
+```
 cargo build --release
 ```
-The compiled binary will be located in the `target/release` directory.
+   The compiled binary will be located in the `target/release` directory.
+
+## Cross Compilation Guide
+
+MC Server Updater can be cross-compiled for different target architectures using the `cross` tool. This allows you to build the updater binary for platforms other than the one you are currently using.
+
+### Prerequisites
+
+- [Install Rust](https://www.rust-lang.org/tools/install) on your system.
+- Install `cross` by running the following command:
+```
+cargo install cross --git https://github.com/cross-rs/cross
+```
+
+### Cross Compiling
+
+To cross-compile MC Server Updater for a specific target architecture, use the `cross build` command followed by the `--target` flag and the desired target triple. For example, to build for `x86_64-unknown-linux-gnu` (64-bit x86 Linux), run:
+
+```
+cross build --release --target x86_64-unknown-linux-gnu
+```
+
+The cross-compiled binary will be located in the `target/x86_64-unknown-linux-gnu/release` directory.
+
+You can find a list of supported targets in the [cross documentation](https://github.com/cross-rs/cross#supported-targets).
 
 ## License
 
