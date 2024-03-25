@@ -27,12 +27,12 @@ fn main() -> Result<()> {
     let version = match args.version {
         Some(v) => v,
         None => {
-            info!("No version specified, checking for the latest version...");
+            info!("Checking for the latest version...");
             get_latest_version(&client).context("Failed to get the latest version")?
         }
     };
 
-    info!("Checking for existing local version information...");
+    info!("Checking local version information...");
     let local_information = get_local_version_information().unwrap_or_else(|e| {
         warn!("Failed to get local version information: {}", e);
         Value::default()
@@ -45,15 +45,21 @@ fn main() -> Result<()> {
                     let remote_build = get_build(&client, &version)?;
                     if local_build >= remote_build {
                         info!(
-                            "The server is already up to date with version {} build {}.",
+                            "Server is up to date (version {}, build {}).",
                             version, local_build
                         );
                         return Ok(());
                     } else {
-                        info!("An update is available for version {}. Local build: {}, Remote build: {}", version, local_build, remote_build);
+                        info!(
+                            "Update available for version {}. Local: {}, Remote: {}",
+                            version, local_build, remote_build
+                        );
                     }
                 } else {
-                    info!("A new Minecraft version is available. Local version: {}, Remote version: {}", local_mc_version, version);
+                    info!(
+                        "New Minecraft version. Local: {}, Remote: {}",
+                        local_mc_version, version
+                    );
                 }
             }
         }
@@ -65,7 +71,7 @@ fn main() -> Result<()> {
     download_handler(&client, &version)
         .context(format!("Failed to download version {}", version))?;
 
-    info!("Server is now up to date with version: {}", version);
+    info!("Server updated to version: {}", version);
     Ok(())
 }
 
