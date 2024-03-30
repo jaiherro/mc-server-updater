@@ -3,10 +3,11 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::fs::{self, read, remove_file, File};
-use std::io::copy;
+use std::fs::{self, read, remove_file};
 use std::path::Path;
 use tracing::{error, info};
+
+use crate::modules::downloader::download_file;
 
 pub fn download_handler(client: &Client, version: &str) -> Result<()> {
     info!("Getting build information for version: {}", version);
@@ -16,7 +17,7 @@ pub fn download_handler(client: &Client, version: &str) -> Result<()> {
     info!("Getting download URL...");
     let filename =
         get_build_filename(client, version, &build).context("Failed to get build filename")?;
-    let url = url(version, &build, &filename);
+    let url = build_url(version, &build, &filename);
 
     info!("Getting remote hash...");
     let remote_hash =
@@ -58,7 +59,7 @@ pub fn get_local_version_information() -> Result<Value> {
     Ok(version_history)
 }
 
-pub fn url(version: &str, build: &u16, filename: &str) -> String {
+fn build_url(version: &str, build: &u16, filename: &str) -> String {
     format!(
         "https://api.papermc.io/v2/projects/paper/versions/{}/builds/{}/downloads/{}",
         version, build, filename
@@ -120,16 +121,6 @@ fn get_build_hash(client: &Client, version: &str, build: &u16) -> Result<String>
         })?;
 
     Ok(build_info.downloads.application.sha256.to_uppercase())
-}
-
-fn download_file(client: &Client, url: &str, filename: &str) -> Result<()> {
-    let mut response = client
-        .get(url)
-        .send()
-        .context(format!("Failed to download from {}", url))?;
-    let mut file = File::create(filename).context(format!("Failed to create file {}", filename))?;
-    copy(&mut response, &mut file).context(format!("Failed to write to file {}", filename))?;
-    Ok(())
 }
 
 fn verify_binary(filename: &str, remote_hash: &str) -> Result<()> {

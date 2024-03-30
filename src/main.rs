@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use reqwest::blocking::Client;
-use serde_json::Value;
+use serde_json;
 use tracing::{info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod modules;
-use modules::paper::{download_handler, get_latest_version, get_local_version_information};
-
-use crate::modules::paper::get_build;
+use modules::paper::{
+    download_handler, get_build, get_latest_version, get_local_version_information,
+};
 
 #[derive(Parser)]
 #[command(author, about)]
@@ -33,10 +33,13 @@ fn main() -> Result<()> {
     };
 
     info!("Checking local version information...");
-    let local_information = get_local_version_information().unwrap_or_else(|e| {
-        warn!("Failed to get local version information: {}", e);
-        Value::default()
-    });
+    let local_information = match get_local_version_information() {
+        Ok(info) => info,
+        Err(e) => {
+            warn!("Failed to get local version information: {}", e);
+            serde_json::Value::default()
+        }
+    };
 
     if let Some(current_version) = local_information.get("currentVersion") {
         if let Some(current_version_str) = current_version.as_str() {
